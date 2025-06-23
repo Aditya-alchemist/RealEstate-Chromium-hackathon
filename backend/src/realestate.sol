@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
+//deployed at 0x168725dc58f2F08257074D55735378C8Ba8b9D9b
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
@@ -37,6 +38,7 @@ contract PropertyNFTMarketplace is ERC721URIStorage, ReentrancyGuard, Ownable {
         uint256 listedAt;
         address originalMinter;
         bool isInternal;
+        bool exists;
     }
     
     // External NFT listing structure
@@ -54,6 +56,7 @@ contract PropertyNFTMarketplace is ERC721URIStorage, ReentrancyGuard, Ownable {
         bool isSold;
         uint256 listedAt;
         string imageURI;
+        bool exists;
     }
     
     // Struct to reduce stack depth in functions
@@ -86,13 +89,6 @@ contract PropertyNFTMarketplace is ERC721URIStorage, ReentrancyGuard, Ownable {
         uint256 sellerAmount;
     }
     
-    struct TransferData {
-        uint256 tokenId;
-        address from;
-        address to;
-        bool isInternal;
-    }
-    
     // Mappings for internal NFTs
     mapping(uint256 => Property) public properties;
     mapping(address => uint256[]) public userProperties;
@@ -102,11 +98,15 @@ contract PropertyNFTMarketplace is ERC721URIStorage, ReentrancyGuard, Ownable {
     mapping(address => uint256[]) public userExternalListings;
     mapping(address => mapping(uint256 => uint256)) public externalNFTToListingId;
     
-    // Arrays to track listings
+    // Arrays to track listings - these will be kept clean
     uint256[] public listedProperties;
     uint256[] public soldProperties;
     uint256[] public activeExternalListings;
     uint256[] public soldExternalListings;
+    
+    // Track all created tokens for easier iteration
+    uint256[] public allTokenIds;
+    uint256[] public allListingIds;
     
     // Events for internal NFTs
     event PropertyMinted(
@@ -185,7 +185,7 @@ contract PropertyNFTMarketplace is ERC721URIStorage, ReentrancyGuard, Ownable {
     }
     
     /**
-     * @dev Mint a new internal property NFT
+     * @dev Mint a new internal property NFT - FIXED VERSION
      */
     function mintProperty(PropertyParams calldata params) external nonReentrant returns (uint256) {
         _validatePropertyParams(params);
@@ -193,9 +193,11 @@ contract PropertyNFTMarketplace is ERC721URIStorage, ReentrancyGuard, Ownable {
         uint256 tokenId = _tokenIdCounter;
         _tokenIdCounter++;
         
+        // First mint the NFT
         _safeMint(msg.sender, tokenId);
         _setTokenURI(tokenId, params.imageURI);
         
+        // Then create the property struct with exists = true
         _createProperty(tokenId, params);
         
         emit PropertyMinted(tokenId, msg.sender, params.name, params.propertyAddress, params.priceInWei, params.imageURI);
@@ -215,9 +217,10 @@ contract PropertyNFTMarketplace is ERC721URIStorage, ReentrancyGuard, Ownable {
     }
     
     /**
-     * @dev Internal function to create property struct
+     * @dev Internal function to create property struct - FIXED VERSION
      */
     function _createProperty(uint256 tokenId, PropertyParams calldata params) internal {
+        // Create property with exists = true
         properties[tokenId] = Property({
             tokenId: tokenId,
             owner: msg.sender,
@@ -231,11 +234,13 @@ contract PropertyNFTMarketplace is ERC721URIStorage, ReentrancyGuard, Ownable {
             isSold: false,
             listedAt: block.timestamp,
             originalMinter: msg.sender,
-            isInternal: true
+            isInternal: true,
+            exists: true  // CRITICAL FIX: Ensure exists is set to true
         });
         
         userProperties[msg.sender].push(tokenId);
         listedProperties.push(tokenId);
+        allTokenIds.push(tokenId);
     }
     
     /**
@@ -281,7 +286,7 @@ contract PropertyNFTMarketplace is ERC721URIStorage, ReentrancyGuard, Ownable {
     }
     
     /**
-     * @dev Internal function to store external listing
+     * @dev Internal function to store external listing - FIXED VERSION
      */
     function _storeExternalListing(uint256 listingId, ExternalListingParams calldata params) internal {
         externalListings[listingId] = ExternalListing({
@@ -297,11 +302,13 @@ contract PropertyNFTMarketplace is ERC721URIStorage, ReentrancyGuard, Ownable {
             isActive: true,
             isSold: false,
             listedAt: block.timestamp,
-            imageURI: params.imageURI
+            imageURI: params.imageURI,
+            exists: true  // CRITICAL FIX: Ensure exists is set to true
         });
         
         userExternalListings[msg.sender].push(listingId);
         activeExternalListings.push(listingId);
+        allListingIds.push(listingId);
         externalNFTToListingId[params.nftContract][params.tokenId] = listingId;
     }
     
@@ -331,7 +338,7 @@ contract PropertyNFTMarketplace is ERC721URIStorage, ReentrancyGuard, Ownable {
      * @dev Validate purchase conditions
      */
     function _validatePurchase(Property storage property, address buyer, uint256 payment) internal view {
-        require(property.tokenId != 0, "Property does not exist");
+        require(property.exists, "Property does not exist");
         require(property.isListed, "Property is not listed for sale");
         require(!property.isSold, "Property is already sold");
         require(buyer != property.owner, "Cannot buy your own property");
@@ -403,7 +410,7 @@ contract PropertyNFTMarketplace is ERC721URIStorage, ReentrancyGuard, Ownable {
      * @dev Validate external NFT purchase
      */
     function _validateExternalPurchase(ExternalListing storage listing, address buyer, uint256 payment) internal view {
-        require(listing.listingId != 0, "Listing does not exist");
+        require(listing.exists, "Listing does not exist");
         require(listing.isActive, "Listing is not active");
         require(!listing.isSold, "NFT is already sold");
         require(buyer != listing.owner, "Cannot buy your own NFT");
@@ -429,133 +436,6 @@ contract PropertyNFTMarketplace is ERC721URIStorage, ReentrancyGuard, Ownable {
         soldExternalListings.push(_listingId);
         
         externalNFTToListingId[listing.nftContract][listing.tokenId] = 0;
-    }
-    
-    /**
-     * @dev Relist an internal property for sale
-     */
-    function relistProperty(uint256 _tokenId, uint256 _newPriceInWei) external {
-        require(ownerOf(_tokenId) == msg.sender, "Not the owner of this property");
-        require(_newPriceInWei > 0, "Price must be greater than 0");
-        
-        Property storage property = properties[_tokenId];
-        require(property.tokenId != 0, "Property does not exist");
-        require(!property.isListed, "Property is already listed");
-        
-        uint256 oldPrice = property.priceInWei;
-        
-        property.priceInWei = _newPriceInWei;
-        property.isListed = true;
-        property.isSold = false;
-        property.listedAt = block.timestamp;
-        
-        _removeFromSoldProperties(_tokenId);
-        listedProperties.push(_tokenId);
-        
-        emit PropertyRelisted(_tokenId, msg.sender, _newPriceInWei, block.timestamp, true);
-        emit PriceUpdated(_tokenId, oldPrice, _newPriceInWei, true);
-    }
-    
-    /**
-     * @dev Relist an external NFT
-     */
-    function relistExternalNFT(ExternalListingParams calldata params) external nonReentrant returns (uint256) {
-        IERC721 nftContract = IERC721(params.nftContract);
-        require(nftContract.ownerOf(params.tokenId) == msg.sender, "You don't own this NFT");
-        
-        uint256 existingListingId = externalNFTToListingId[params.nftContract][params.tokenId];
-        if (existingListingId != 0) {
-            ExternalListing storage existingListing = externalListings[existingListingId];
-            require(!existingListing.isActive, "NFT is already listed");
-            
-            _updateExternalListing(existingListingId, params);
-            
-            activeExternalListings.push(existingListingId);
-            _removeFromSoldExternalListings(existingListingId);
-            
-            emit PropertyRelisted(params.tokenId, msg.sender, params.priceInWei, block.timestamp, false);
-            return existingListingId;
-        } else {
-            return _createExternalListing(params);
-        }
-    }
-    
-    /**
-     * @dev Internal function to update external listing
-     */
-    function _updateExternalListing(uint256 listingId, ExternalListingParams calldata params) internal {
-        ExternalListing storage listing = externalListings[listingId];
-        
-        listing.owner = msg.sender;
-        listing.name = params.name;
-        listing.description = params.description;
-        listing.propertyAddress = params.propertyAddress;
-        listing.ownerDetails = params.ownerDetails;
-        listing.imageURI = params.imageURI;
-        listing.priceInWei = params.priceInWei;
-        listing.isActive = true;
-        listing.isSold = false;
-        listing.listedAt = block.timestamp;
-    }
-    
-    /**
-     * @dev Update price of a listed internal property
-     */
-    function updatePropertyPrice(uint256 _tokenId, uint256 _newPriceInWei) external {
-        require(ownerOf(_tokenId) == msg.sender, "Not the owner of this property");
-        require(_newPriceInWei > 0, "Price must be greater than 0");
-        
-        Property storage property = properties[_tokenId];
-        require(property.tokenId != 0, "Property does not exist");
-        require(property.isListed, "Property is not listed");
-        
-        uint256 oldPrice = property.priceInWei;
-        property.priceInWei = _newPriceInWei;
-        
-        emit PriceUpdated(_tokenId, oldPrice, _newPriceInWei, true);
-    }
-    
-    /**
-     * @dev Update price of an external NFT listing
-     */
-    function updateExternalNFTPrice(uint256 _listingId, uint256 _newPriceInWei) external {
-        ExternalListing storage listing = externalListings[_listingId];
-        require(listing.owner == msg.sender, "Not the owner of this listing");
-        require(_newPriceInWei > 0, "Price must be greater than 0");
-        require(listing.isActive, "Listing is not active");
-        
-        uint256 oldPrice = listing.priceInWei;
-        listing.priceInWei = _newPriceInWei;
-        
-        emit PriceUpdated(listing.tokenId, oldPrice, _newPriceInWei, false);
-    }
-    
-    /**
-     * @dev Remove internal property from listing
-     */
-    function removeFromListing(uint256 _tokenId) external {
-        require(ownerOf(_tokenId) == msg.sender, "Not the owner of this property");
-        
-        Property storage property = properties[_tokenId];
-        require(property.tokenId != 0, "Property does not exist");
-        require(property.isListed, "Property is not listed");
-        
-        property.isListed = false;
-        _removeFromListedProperties(_tokenId);
-    }
-    
-    /**
-     * @dev Remove external NFT from listing
-     */
-    function removeExternalNFTFromListing(uint256 _listingId) external {
-        ExternalListing storage listing = externalListings[_listingId];
-        require(listing.owner == msg.sender, "Not the owner of this listing");
-        require(listing.isActive, "Listing is not active");
-        
-        listing.isActive = false;
-        _removeFromActiveExternalListings(_listingId);
-        
-        emit ExternalNFTDelisted(_listingId, listing.nftContract, listing.tokenId, msg.sender);
     }
     
     /**
@@ -587,32 +467,137 @@ contract PropertyNFTMarketplace is ERC721URIStorage, ReentrancyGuard, Ownable {
     }
     
     /**
-     * @dev Get internal property details with USD price
+     * @dev Get internal property details with USD price - ENHANCED ERROR HANDLING
      */
     function getPropertyWithUSDPrice(uint256 _tokenId) external view returns (
         Property memory property,
         uint256 priceInUSD
     ) {
         property = properties[_tokenId];
+        require(property.exists, "Property does not exist");
+        require(_tokenId > 0 && _tokenId < _tokenIdCounter, "Invalid token ID");
         priceInUSD = convertWeiToUSD(property.priceInWei);
     }
     
     /**
-     * @dev Get external listing details with USD price
+     * @dev Get external listing details with USD price - ENHANCED ERROR HANDLING
      */
     function getExternalListingWithUSDPrice(uint256 _listingId) external view returns (
         ExternalListing memory listing,
         uint256 priceInUSD
     ) {
         listing = externalListings[_listingId];
+        require(listing.exists, "Listing does not exist");
+        require(_listingId > 0 && _listingId < _listingIdCounter, "Invalid listing ID");
         priceInUSD = convertWeiToUSD(listing.priceInWei);
     }
     
     /**
-     * @dev Get all listed internal properties
+     * @dev Get all listed internal properties - ENHANCED VERSION
      */
     function getListedProperties() external view returns (uint256[] memory) {
-        return listedProperties;
+        uint256[] memory validListings = new uint256[](listedProperties.length);
+        uint256 validCount = 0;
+        
+        for (uint256 i = 0; i < listedProperties.length; i++) {
+            uint256 tokenId = listedProperties[i];
+            if (properties[tokenId].exists && 
+                properties[tokenId].isListed && 
+                !properties[tokenId].isSold &&
+                tokenId > 0 && tokenId < _tokenIdCounter) {
+                validListings[validCount] = tokenId;
+                validCount++;
+            }
+        }
+        
+        // Create array with exact size
+        uint256[] memory result = new uint256[](validCount);
+        for (uint256 i = 0; i < validCount; i++) {
+            result[i] = validListings[i];
+        }
+        
+        return result;
+    }
+    
+    /**
+     * @dev Get all active external listings - ENHANCED VERSION
+     */
+    function getActiveExternalListings() external view returns (uint256[] memory) {
+        uint256[] memory validListings = new uint256[](activeExternalListings.length);
+        uint256 validCount = 0;
+        
+        for (uint256 i = 0; i < activeExternalListings.length; i++) {
+            uint256 listingId = activeExternalListings[i];
+            if (externalListings[listingId].exists && 
+                externalListings[listingId].isActive && 
+                !externalListings[listingId].isSold &&
+                listingId > 0 && listingId < _listingIdCounter) {
+                validListings[validCount] = listingId;
+                validCount++;
+            }
+        }
+        
+        // Create array with exact size
+        uint256[] memory result = new uint256[](validCount);
+        for (uint256 i = 0; i < validCount; i++) {
+            result[i] = validListings[i];
+        }
+        
+        return result;
+    }
+    
+    /**
+     * @dev Get properties owned by a user (internal NFTs) - ENHANCED VERSION
+     */
+    function getUserProperties(address _user) external view returns (uint256[] memory) {
+        uint256[] memory userTokens = userProperties[_user];
+        uint256[] memory validTokens = new uint256[](userTokens.length);
+        uint256 validCount = 0;
+        
+        for (uint256 i = 0; i < userTokens.length; i++) {
+            uint256 tokenId = userTokens[i];
+            if (properties[tokenId].exists && 
+                ownerOf(tokenId) == _user &&
+                tokenId > 0 && tokenId < _tokenIdCounter) {
+                validTokens[validCount] = tokenId;
+                validCount++;
+            }
+        }
+        
+        // Create array with exact size
+        uint256[] memory result = new uint256[](validCount);
+        for (uint256 i = 0; i < validCount; i++) {
+            result[i] = validTokens[i];
+        }
+        
+        return result;
+    }
+    
+    /**
+     * @dev Get external listings by a user - ENHANCED VERSION
+     */
+    function getUserExternalListings(address _user) external view returns (uint256[] memory) {
+        uint256[] memory userListings = userExternalListings[_user];
+        uint256[] memory validListings = new uint256[](userListings.length);
+        uint256 validCount = 0;
+        
+        for (uint256 i = 0; i < userListings.length; i++) {
+            uint256 listingId = userListings[i];
+            if (externalListings[listingId].exists && 
+                externalListings[listingId].owner == _user &&
+                listingId > 0 && listingId < _listingIdCounter) {
+                validListings[validCount] = listingId;
+                validCount++;
+            }
+        }
+        
+        // Create array with exact size
+        uint256[] memory result = new uint256[](validCount);
+        for (uint256 i = 0; i < validCount; i++) {
+            result[i] = validListings[i];
+        }
+        
+        return result;
     }
     
     /**
@@ -623,74 +608,10 @@ contract PropertyNFTMarketplace is ERC721URIStorage, ReentrancyGuard, Ownable {
     }
     
     /**
-     * @dev Get all active external listings
-     */
-    function getActiveExternalListings() external view returns (uint256[] memory) {
-        return activeExternalListings;
-    }
-    
-    /**
      * @dev Get all sold external listings
      */
     function getSoldExternalListings() external view returns (uint256[] memory) {
         return soldExternalListings;
-    }
-    
-    /**
-     * @dev Get all listings with USD prices - optimized version
-     */
-    function getAllListingsWithPrices() external view returns (
-        uint256[] memory internalTokenIds,
-        uint256[] memory externalListingIds,
-        uint256[] memory internalPricesUSD,
-        uint256[] memory externalPricesUSD
-    ) {
-        internalTokenIds = listedProperties;
-        externalListingIds = activeExternalListings;
-        
-        internalPricesUSD = new uint256[](internalTokenIds.length);
-        externalPricesUSD = new uint256[](externalListingIds.length);
-        
-        _calculateInternalPricesUSD(internalTokenIds, internalPricesUSD);
-        _calculateExternalPricesUSD(externalListingIds, externalPricesUSD);
-    }
-    
-    /**
-     * @dev Calculate internal prices in USD
-     */
-    function _calculateInternalPricesUSD(
-        uint256[] memory tokenIds,
-        uint256[] memory pricesUSD
-    ) internal view {
-        for (uint256 i = 0; i < tokenIds.length; i++) {
-            pricesUSD[i] = convertWeiToUSD(properties[tokenIds[i]].priceInWei);
-        }
-    }
-    
-    /**
-     * @dev Calculate external prices in USD
-     */
-    function _calculateExternalPricesUSD(
-        uint256[] memory listingIds,
-        uint256[] memory pricesUSD
-    ) internal view {
-        for (uint256 i = 0; i < listingIds.length; i++) {
-            pricesUSD[i] = convertWeiToUSD(externalListings[listingIds[i]].priceInWei);
-        }
-    }
-    
-    /**
-     * @dev Get properties owned by a user (internal NFTs)
-     */
-    function getUserProperties(address _user) external view returns (uint256[] memory) {
-        return userProperties[_user];
-    }
-    
-    /**
-     * @dev Get external listings by a user
-     */
-    function getUserExternalListings(address _user) external view returns (uint256[] memory) {
-        return userExternalListings[_user];
     }
     
     /**
@@ -705,6 +626,20 @@ contract PropertyNFTMarketplace is ERC721URIStorage, ReentrancyGuard, Ownable {
      */
     function getTotalExternalListings() external view returns (uint256) {
         return _listingIdCounter - 1;
+    }
+    
+    /**
+     * @dev Check if property exists - ENHANCED VERSION
+     */
+    function propertyExists(uint256 _tokenId) external view returns (bool) {
+        return _tokenId > 0 && _tokenId < _tokenIdCounter && properties[_tokenId].exists;
+    }
+    
+    /**
+     * @dev Check if external listing exists - ENHANCED VERSION
+     */
+    function externalListingExists(uint256 _listingId) external view returns (bool) {
+        return _listingId > 0 && _listingId < _listingIdCounter && externalListings[_listingId].exists;
     }
     
     // Internal helper functions
@@ -740,31 +675,11 @@ contract PropertyNFTMarketplace is ERC721URIStorage, ReentrancyGuard, Ownable {
         }
     }
     
-    function _removeFromSoldProperties(uint256 _tokenId) internal {
-        for (uint256 i = 0; i < soldProperties.length; i++) {
-            if (soldProperties[i] == _tokenId) {
-                soldProperties[i] = soldProperties[soldProperties.length - 1];
-                soldProperties.pop();
-                break;
-            }
-        }
-    }
-    
     function _removeFromActiveExternalListings(uint256 _listingId) internal {
         for (uint256 i = 0; i < activeExternalListings.length; i++) {
             if (activeExternalListings[i] == _listingId) {
                 activeExternalListings[i] = activeExternalListings[activeExternalListings.length - 1];
                 activeExternalListings.pop();
-                break;
-            }
-        }
-    }
-    
-    function _removeFromSoldExternalListings(uint256 _listingId) internal {
-        for (uint256 i = 0; i < soldExternalListings.length; i++) {
-            if (soldExternalListings[i] == _listingId) {
-                soldExternalListings[i] = soldExternalListings[soldExternalListings.length - 1];
-                soldExternalListings.pop();
                 break;
             }
         }
@@ -785,5 +700,46 @@ contract PropertyNFTMarketplace is ERC721URIStorage, ReentrancyGuard, Ownable {
     // Emergency function to update price feed address
     function updatePriceFeed(address _newPriceFeedAddress) external onlyOwner {
         priceFeed = AggregatorV3Interface(_newPriceFeedAddress);
+    }
+    
+    /**
+     * @dev Clean up stale data (owner only)
+     */
+    function cleanupStaleData() external onlyOwner {
+        // Clean up listed properties
+        uint256[] memory newListedProperties = new uint256[](listedProperties.length);
+        uint256 validCount = 0;
+        
+        for (uint256 i = 0; i < listedProperties.length; i++) {
+            uint256 tokenId = listedProperties[i];
+            if (properties[tokenId].exists && properties[tokenId].isListed && !properties[tokenId].isSold) {
+                newListedProperties[validCount] = tokenId;
+                validCount++;
+            }
+        }
+        
+        // Update the array
+        delete listedProperties;
+        for (uint256 i = 0; i < validCount; i++) {
+            listedProperties.push(newListedProperties[i]);
+        }
+        
+        // Clean up active external listings
+        uint256[] memory newActiveListings = new uint256[](activeExternalListings.length);
+        validCount = 0;
+        
+        for (uint256 i = 0; i < activeExternalListings.length; i++) {
+            uint256 listingId = activeExternalListings[i];
+            if (externalListings[listingId].exists && externalListings[listingId].isActive && !externalListings[listingId].isSold) {
+                newActiveListings[validCount] = listingId;
+                validCount++;
+            }
+        }
+        
+        // Update the array
+        delete activeExternalListings;
+        for (uint256 i = 0; i < validCount; i++) {
+            activeExternalListings.push(newActiveListings[i]);
+        }
     }
 }
