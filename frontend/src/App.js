@@ -272,6 +272,24 @@ const PropertyNFTMarketplace = () => {
         }
     };
 
+    // Helper function to safely access property data
+    const getPropertyData = (property) => {
+        return {
+            name: property?.name || 'Unnamed Property',
+            description: property?.description || 'No description available',
+            propertyAddress: property?.propertyAddress || 'Address not provided',
+            ownerDetails: property?.ownerDetails || 'Owner details not available',
+            imageURI: getWorkingImageUrl(property?.imageURI),
+            priceInWei: property?.priceInWei?.toString() || '0',
+            priceInUSD: property?.priceInUSD?.toString() || '0',
+            owner: property?.owner || 'Unknown',
+            tokenId: property?.tokenId?.toString() || property?.listingId?.toString() || '0',
+            isListed: property?.isListed !== undefined ? property.isListed : property?.isActive || false,
+            isSold: property?.isSold || false,
+            isInternal: property?.isInternal !== undefined ? property.isInternal : true
+        };
+    };
+
     const handleImageUpload = (event, isExternal = false) => {
         const file = event.target.files[0];
         if (file) {
@@ -829,29 +847,41 @@ const PropertyNFTMarketplace = () => {
                                         console.log(`Property ${tokenId} USD price:`, priceInUSD.toString());
                                         
                                         if (propertyWithDetails.exists && propertyWithDetails.isListed && !propertyWithDetails.isSold) {
-                                            internalProperties.push({
+                                            const propertyData = {
                                                 ...propertyWithDetails,
                                                 priceInUSD: priceInUSD.toString(),
                                                 isInternal: true,
                                                 tokenId: tokenId.toString(),
                                                 priceInWei: propertyWithDetails.priceInWei.toString(),
                                                 owner: propertyWithDetails.owner,
-                                                imageURI: getWorkingImageUrl(propertyWithDetails.imageURI)
-                                            });
+                                                imageURI: getWorkingImageUrl(propertyWithDetails.imageURI),
+                                                // Ensure all required fields are present
+                                                name: propertyWithDetails.name || 'Unnamed Property',
+                                                description: propertyWithDetails.description || 'No description available',
+                                                propertyAddress: propertyWithDetails.propertyAddress || 'Address not provided',
+                                                ownerDetails: propertyWithDetails.ownerDetails || 'Owner details not available'
+                                            };
+                                            internalProperties.push(propertyData);
                                         }
                                     } else {
                                         // Fallback to basic property getter
                                         const property = await contract.properties(tokenId);
                                         if (property.exists && property.isListed && !property.isSold) {
-                                            internalProperties.push({
+                                            const propertyData = {
                                                 ...property,
                                                 priceInUSD: '0',
                                                 isInternal: true,
                                                 tokenId: tokenId.toString(),
                                                 priceInWei: property.priceInWei.toString(),
                                                 owner: property.owner,
-                                                imageURI: getWorkingImageUrl(property.imageURI)
-                                            });
+                                                imageURI: getWorkingImageUrl(property.imageURI),
+                                                // Ensure all required fields are present
+                                                name: property.name || 'Unnamed Property',
+                                                description: property.description || 'No description available',
+                                                propertyAddress: property.propertyAddress || 'Address not provided',
+                                                ownerDetails: property.ownerDetails || 'Owner details not available'
+                                            };
+                                            internalProperties.push(propertyData);
                                         }
                                     }
                                 } catch (priceError) {
@@ -859,15 +889,21 @@ const PropertyNFTMarketplace = () => {
                                     try {
                                         const property = await contract.properties(tokenId);
                                         if (property.exists && property.isListed && !property.isSold) {
-                                            internalProperties.push({
+                                            const propertyData = {
                                                 ...property,
                                                 priceInUSD: '0',
                                                 isInternal: true,
                                                 tokenId: tokenId.toString(),
                                                 priceInWei: property.priceInWei.toString(),
                                                 owner: property.owner,
-                                                imageURI: getWorkingImageUrl(property.imageURI)
-                                            });
+                                                imageURI: getWorkingImageUrl(property.imageURI),
+                                                // Ensure all required fields are present
+                                                name: property.name || 'Unnamed Property',
+                                                description: property.description || 'No description available',
+                                                propertyAddress: property.propertyAddress || 'Address not provided',
+                                                ownerDetails: property.ownerDetails || 'Owner details not available'
+                                            };
+                                            internalProperties.push(propertyData);
                                         }
                                     } catch (fallbackError) {
                                         console.error(`Fallback failed for property ${tokenId}:`, fallbackError);
@@ -913,28 +949,40 @@ const PropertyNFTMarketplace = () => {
                                         console.log(`External listing ${listingId} USD price:`, priceInUSD.toString());
                                         
                                         if (listingWithDetails.exists && listingWithDetails.isActive && !listingWithDetails.isSold) {
-                                            externalListings.push({
+                                            const listingData = {
                                                 ...listingWithDetails,
                                                 priceInUSD: priceInUSD.toString(),
                                                 isInternal: false,
                                                 listingId: listingId.toString(),
                                                 priceInWei: listingWithDetails.priceInWei.toString(),
                                                 owner: listingWithDetails.owner,
-                                                imageURI: getWorkingImageUrl(listingWithDetails.imageURI)
-                                            });
+                                                imageURI: getWorkingImageUrl(listingWithDetails.imageURI),
+                                                // Ensure all required fields are present
+                                                name: listingWithDetails.name || 'Unnamed NFT',
+                                                description: listingWithDetails.description || 'No description available',
+                                                propertyAddress: listingWithDetails.propertyAddress || 'Address not provided',
+                                                ownerDetails: listingWithDetails.ownerDetails || 'Owner details not available'
+                                            };
+                                            externalListings.push(listingData);
                                         }
                                     } else {
                                         const listing = await contract.externalListings(listingId);
                                         if (listing.exists && listing.isActive && !listing.isSold) {
-                                            externalListings.push({
+                                            const listingData = {
                                                 ...listing,
                                                 priceInUSD: '0',
                                                 isInternal: false,
                                                 listingId: listingId.toString(),
                                                 priceInWei: listing.priceInWei.toString(),
                                                 owner: listing.owner,
-                                                imageURI: getWorkingImageUrl(listing.imageURI)
-                                            });
+                                                imageURI: getWorkingImageUrl(listing.imageURI),
+                                                // Ensure all required fields are present
+                                                name: listing.name || 'Unnamed NFT',
+                                                description: listing.description || 'No description available',
+                                                propertyAddress: listing.propertyAddress || 'Address not provided',
+                                                ownerDetails: listing.ownerDetails || 'Owner details not available'
+                                            };
+                                            externalListings.push(listingData);
                                         }
                                     }
                                 } catch (priceError) {
@@ -942,15 +990,21 @@ const PropertyNFTMarketplace = () => {
                                     try {
                                         const listing = await contract.externalListings(listingId);
                                         if (listing.exists && listing.isActive && !listing.isSold) {
-                                            externalListings.push({
+                                            const listingData = {
                                                 ...listing,
                                                 priceInUSD: '0',
                                                 isInternal: false,
                                                 listingId: listingId.toString(),
                                                 priceInWei: listing.priceInWei.toString(),
                                                 owner: listing.owner,
-                                                imageURI: getWorkingImageUrl(listing.imageURI)
-                                            });
+                                                imageURI: getWorkingImageUrl(listing.imageURI),
+                                                // Ensure all required fields are present
+                                                name: listing.name || 'Unnamed NFT',
+                                                description: listing.description || 'No description available',
+                                                propertyAddress: listing.propertyAddress || 'Address not provided',
+                                                ownerDetails: listing.ownerDetails || 'Owner details not available'
+                                            };
+                                            externalListings.push(listingData);
                                         }
                                     } catch (fallbackError) {
                                         console.error(`Fallback failed for listing ${listingId}:`, fallbackError);
@@ -1014,24 +1068,36 @@ const PropertyNFTMarketplace = () => {
                                         console.log(`User property ${tokenId} USD price:`, priceInUSD.toString());
                                         
                                         if (propertyWithDetails.exists) {
-                                            properties.push({
+                                            const propertyData = {
                                                 ...propertyWithDetails,
                                                 priceInUSD: priceInUSD.toString(),
                                                 tokenId: tokenId.toString(),
                                                 priceInWei: propertyWithDetails.priceInWei.toString(),
-                                                imageURI: getWorkingImageUrl(propertyWithDetails.imageURI)
-                                            });
+                                                imageURI: getWorkingImageUrl(propertyWithDetails.imageURI),
+                                                // Ensure all required fields are present
+                                                name: propertyWithDetails.name || 'Unnamed Property',
+                                                description: propertyWithDetails.description || 'No description available',
+                                                propertyAddress: propertyWithDetails.propertyAddress || 'Address not provided',
+                                                ownerDetails: propertyWithDetails.ownerDetails || 'Owner details not available'
+                                            };
+                                            properties.push(propertyData);
                                         }
                                     } else {
                                         const property = await contract.properties(tokenId);
                                         if (property.exists) {
-                                            properties.push({
+                                            const propertyData = {
                                                 ...property,
                                                 priceInUSD: '0',
                                                 tokenId: tokenId.toString(),
                                                 priceInWei: property.priceInWei.toString(),
-                                                imageURI: getWorkingImageUrl(property.imageURI)
-                                            });
+                                                imageURI: getWorkingImageUrl(property.imageURI),
+                                                // Ensure all required fields are present
+                                                name: property.name || 'Unnamed Property',
+                                                description: property.description || 'No description available',
+                                                propertyAddress: property.propertyAddress || 'Address not provided',
+                                                ownerDetails: property.ownerDetails || 'Owner details not available'
+                                            };
+                                            properties.push(propertyData);
                                         }
                                     }
                                 } catch (priceError) {
@@ -1039,13 +1105,19 @@ const PropertyNFTMarketplace = () => {
                                     try {
                                         const property = await contract.properties(tokenId);
                                         if (property.exists) {
-                                            properties.push({
+                                            const propertyData = {
                                                 ...property,
                                                 priceInUSD: '0',
                                                 tokenId: tokenId.toString(),
                                                 priceInWei: property.priceInWei.toString(),
-                                                imageURI: getWorkingImageUrl(property.imageURI)
-                                            });
+                                                imageURI: getWorkingImageUrl(property.imageURI),
+                                                // Ensure all required fields are present
+                                                name: property.name || 'Unnamed Property',
+                                                description: property.description || 'No description available',
+                                                propertyAddress: property.propertyAddress || 'Address not provided',
+                                                ownerDetails: property.ownerDetails || 'Owner details not available'
+                                            };
+                                            properties.push(propertyData);
                                         }
                                     } catch (fallbackError) {
                                         console.error(`Fallback failed for user property ${tokenId}:`, fallbackError);
@@ -1106,24 +1178,36 @@ const PropertyNFTMarketplace = () => {
                                         console.log(`User external listing ${listingId} USD price:`, priceInUSD.toString());
                                         
                                         if (listingWithDetails.exists) {
-                                            listings.push({
+                                            const listingData = {
                                                 ...listingWithDetails,
                                                 priceInUSD: priceInUSD.toString(),
                                                 listingId: listingId.toString(),
                                                 priceInWei: listingWithDetails.priceInWei.toString(),
-                                                imageURI: getWorkingImageUrl(listingWithDetails.imageURI)
-                                            });
+                                                imageURI: getWorkingImageUrl(listingWithDetails.imageURI),
+                                                // Ensure all required fields are present
+                                                name: listingWithDetails.name || 'Unnamed NFT',
+                                                description: listingWithDetails.description || 'No description available',
+                                                propertyAddress: listingWithDetails.propertyAddress || 'Address not provided',
+                                                ownerDetails: listingWithDetails.ownerDetails || 'Owner details not available'
+                                            };
+                                            listings.push(listingData);
                                         }
                                     } else {
                                         const listing = await contract.externalListings(listingId);
                                         if (listing.exists) {
-                                            listings.push({
+                                            const listingData = {
                                                 ...listing,
                                                 priceInUSD: '0',
                                                 listingId: listingId.toString(),
                                                 priceInWei: listing.priceInWei.toString(),
-                                                imageURI: getWorkingImageUrl(listing.imageURI)
-                                            });
+                                                imageURI: getWorkingImageUrl(listing.imageURI),
+                                                // Ensure all required fields are present
+                                                name: listing.name || 'Unnamed NFT',
+                                                description: listing.description || 'No description available',
+                                                propertyAddress: listing.propertyAddress || 'Address not provided',
+                                                ownerDetails: listing.ownerDetails || 'Owner details not available'
+                                            };
+                                            listings.push(listingData);
                                         }
                                     }
                                 } catch (priceError) {
@@ -1131,13 +1215,19 @@ const PropertyNFTMarketplace = () => {
                                     try {
                                         const listing = await contract.externalListings(listingId);
                                         if (listing.exists) {
-                                            listings.push({
+                                            const listingData = {
                                                 ...listing,
                                                 priceInUSD: '0',
                                                 listingId: listingId.toString(),
                                                 priceInWei: listing.priceInWei.toString(),
-                                                imageURI: getWorkingImageUrl(listing.imageURI)
-                                            });
+                                                imageURI: getWorkingImageUrl(listing.imageURI),
+                                                // Ensure all required fields are present
+                                                name: listing.name || 'Unnamed NFT',
+                                                description: listing.description || 'No description available',
+                                                propertyAddress: listing.propertyAddress || 'Address not provided',
+                                                ownerDetails: listing.ownerDetails || 'Owner details not available'
+                                            };
+                                            listings.push(listingData);
                                         }
                                     } catch (fallbackError) {
                                         console.error(`Fallback failed for user listing ${listingId}:`, fallbackError);
@@ -1345,86 +1435,92 @@ const PropertyNFTMarketplace = () => {
                                 </div>
                             ) : (
                                 <div className="properties-grid">
-                                    {listedProperties.map((property, index) => (
-                                        <div key={index} className="property-card">
-                                            <div className="property-image-container">
-                                                <img 
-                                                    src={property.imageURI} 
-                                                    alt={property.name}
-                                                    className="property-image"
-                                                    onError={(e) => {
-                                                        console.log('Image failed to load:', property.imageURI);
-                                                        e.target.src = 'https://via.placeholder.com/400x250?text=Property+Image';
-                                                    }}
-                                                    onLoad={() => {
-                                                        console.log('Image loaded successfully:', property.imageURI);
-                                                    }}
-                                                />
-                                                <div className="property-type-badge">
-                                                    <span className={`type-badge ${property.isInternal ? 'internal' : 'external'}`}>
-                                                        {property.isInternal ? 'Internal NFT' : 'External NFT'}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                            
-                                            <div className="property-details">
-                                                <h3>{property.name}</h3>
-                                                {property.propertyAddress && (
-                                                    <p className="property-address">📍 {property.propertyAddress}</p>
-                                                )}
-                                                {property.description && (
-                                                    <p className="property-description">{property.description}</p>
-                                                )}
-                                                
-                                                <div className="property-price">
-                                                    <div className="price-eth">
-                                                        {formatPrice(property.priceInWei)} ETH
-                                                    </div>
-                                                    <div className="price-usd">
-                                                        {formatUSDPrice(property.priceInUSD)}
-                                                    </div>
-                                                </div>
-                                                
-                                                <p className="owner">
-                                                    Owner: {formatAddress(property.owner)}
-                                                </p>
-                                                
-                                                <div className="property-status">
-                                                    <span className="status listed">Listed</span>
-                                                    {property.isInternal && (
-                                                        <span className="token-id">
-                                                            Token #{property.tokenId}
-                                                        </span>
-                                                    )}
-                                                    {!property.isInternal && (
-                                                        <span className="token-id">
-                                                            Listing #{property.listingId}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                
-                                                {property.owner.toLowerCase() === account.toLowerCase() ? (
-                                                    <div className="owner-badge">
-                                                        You own this property
-                                                    </div>
-                                                ) : (
-                                                    <button 
-                                                        className="purchase-btn"
-                                                        onClick={() => {
-                                                            if (property.isInternal) {
-                                                                purchaseProperty(property.tokenId, property.priceInWei);
-                                                            } else {
-                                                                purchaseExternalNFT(property.listingId, property.priceInWei);
-                                                            }
+                                    {listedProperties.map((property, index) => {
+                                        const propertyData = getPropertyData(property);
+                                        return (
+                                            <div key={index} className="property-card">
+                                                <div className="property-image-container">
+                                                    <img 
+                                                        src={propertyData.imageURI} 
+                                                        alt={propertyData.name}
+                                                        className="property-image"
+                                                        onError={(e) => {
+                                                            console.log('Image failed to load:', propertyData.imageURI);
+                                                            e.target.src = 'https://via.placeholder.com/400x250?text=Property+Image';
                                                         }}
-                                                        disabled={loading}
-                                                    >
-                                                        {loading ? 'Processing...' : 'Buy Now'}
-                                                    </button>
-                                                )}
+                                                        onLoad={() => {
+                                                            console.log('Image loaded successfully:', propertyData.imageURI);
+                                                        }}
+                                                    />
+                                                    <div className="property-type-badge">
+                                                        <span className={`type-badge ${propertyData.isInternal ? 'internal' : 'external'}`}>
+                                                            {propertyData.isInternal ? 'Internal NFT' : 'External NFT'}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                
+                                                <div className="property-details">
+                                                    <h3>{propertyData.name}</h3>
+                                                    {propertyData.propertyAddress && propertyData.propertyAddress !== 'Address not provided' && (
+                                                        <p className="property-address">📍 {propertyData.propertyAddress}</p>
+                                                    )}
+                                                    {propertyData.description && propertyData.description !== 'No description available' && (
+                                                        <p className="property-description">{propertyData.description}</p>
+                                                    )}
+                                                    {propertyData.ownerDetails && propertyData.ownerDetails !== 'Owner details not available' && (
+                                                        <p className="owner-details">👤 {propertyData.ownerDetails}</p>
+                                                    )}
+                                                    
+                                                    <div className="property-price">
+                                                        <div className="price-eth">
+                                                            {formatPrice(propertyData.priceInWei)} ETH
+                                                        </div>
+                                                        <div className="price-usd">
+                                                            {formatUSDPrice(propertyData.priceInUSD)}
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    <p className="owner">
+                                                        Owner: {formatAddress(propertyData.owner)}
+                                                    </p>
+                                                    
+                                                    <div className="property-status">
+                                                        <span className="status listed">Listed</span>
+                                                        {propertyData.isInternal && (
+                                                            <span className="token-id">
+                                                                Token #{propertyData.tokenId}
+                                                            </span>
+                                                        )}
+                                                        {!propertyData.isInternal && (
+                                                            <span className="token-id">
+                                                                Listing #{propertyData.tokenId}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    
+                                                    {propertyData.owner.toLowerCase() === account.toLowerCase() ? (
+                                                        <div className="owner-badge">
+                                                            You own this property
+                                                        </div>
+                                                    ) : (
+                                                        <button 
+                                                            className="purchase-btn"
+                                                            onClick={() => {
+                                                                if (propertyData.isInternal) {
+                                                                    purchaseProperty(propertyData.tokenId, propertyData.priceInWei);
+                                                                } else {
+                                                                    purchaseExternalNFT(propertyData.tokenId, propertyData.priceInWei);
+                                                                }
+                                                            }}
+                                                            disabled={loading}
+                                                        >
+                                                            {loading ? 'Processing...' : 'Buy Now'}
+                                                        </button>
+                                                    )}
+                                                </div>
                                             </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             )}
                         </div>
@@ -1471,7 +1567,7 @@ const PropertyNFTMarketplace = () => {
                                 </div>
 
                                 <div className="form-group">
-                                    <label>Owner Details</label>
+                                    <label>Owner Details                                </label>
                                     <input
                                         type="text"
                                         className="text-input"
@@ -1631,9 +1727,15 @@ const PropertyNFTMarketplace = () => {
                                     onClick={listExternalNFT}
                                     disabled={loading}
                                 >
-                                    </button>
-                                    
-                                
+                                    {loading ? (
+                                        <>
+                                            <span className="loading-spinner"></span>
+                                            Listing...
+                                        </>
+                                    ) : (
+                                        'List External NFT'
+                                    )}
+                                </button>
                             </div>
                         </div>
                     )}
@@ -1666,61 +1768,78 @@ const PropertyNFTMarketplace = () => {
                                 </div>
                             ) : (
                                 <div className="properties-grid">
-                                    {userProperties.map((property, index) => (
-                                        <div key={index} className="property-card">
-                                            <div className="property-image-container">
-                                                <img 
-                                                    src={property.imageURI} 
-                                                    alt={property.name}
-                                                    className="property-image"
-                                                    onError={(e) => {
-                                                        console.log('User property image failed to load:', property.imageURI);
-                                                        e.target.src = 'https://via.placeholder.com/400x250?text=Property+Image';
-                                                    }}
-                                                    onLoad={() => {
-                                                        console.log('User property image loaded successfully:', property.imageURI);
-                                                    }}
-                                                />
-                                                <div className="property-type-badge">
-                                                    <span className="type-badge internal">
-                                                        My Property
-                                                    </span>
-                                                </div>
-                                            </div>
-                                            
-                                            <div className="property-details">
-                                                <h3>{property.name}</h3>
-                                                {property.propertyAddress && (
-                                                    <p className="property-address">📍 {property.propertyAddress}</p>
-                                                )}
-                                                {property.description && (
-                                                    <p className="property-description">{property.description}</p>
-                                                )}
-                                                
-                                                <div className="property-price">
-                                                    <div className="price-eth">
-                                                        {formatPrice(property.priceInWei)} ETH
-                                                    </div>
-                                                    <div className="price-usd">
-                                                        {formatUSDPrice(property.priceInUSD)}
+                                    {userProperties.map((property, index) => {
+                                        // Safely access property data with fallbacks
+                                        const propertyName = property?.name || 'Unnamed Property';
+                                        const propertyDescription = property?.description || '';
+                                        const propertyAddress = property?.propertyAddress || '';
+                                        const ownerDetails = property?.ownerDetails || '';
+                                        const imageURI = getWorkingImageUrl(property?.imageURI);
+                                        const priceInWei = property?.priceInWei?.toString() || '0';
+                                        const priceInUSD = property?.priceInUSD?.toString() || '0';
+                                        const tokenId = property?.tokenId?.toString() || '0';
+                                        const isListed = property?.isListed || false;
+                                        const isSold = property?.isSold || false;
+
+                                        return (
+                                            <div key={index} className="property-card">
+                                                <div className="property-image-container">
+                                                    <img 
+                                                        src={imageURI} 
+                                                        alt={propertyName}
+                                                        className="property-image"
+                                                        onError={(e) => {
+                                                            console.log('User property image failed to load:', imageURI);
+                                                            e.target.src = 'https://via.placeholder.com/400x250?text=Property+Image';
+                                                        }}
+                                                        onLoad={() => {
+                                                            console.log('User property image loaded successfully:', imageURI);
+                                                        }}
+                                                    />
+                                                    <div className="property-type-badge">
+                                                        <span className="type-badge internal">
+                                                            My Property
+                                                        </span>
                                                     </div>
                                                 </div>
                                                 
-                                                <div className="property-status">
-                                                    <span className={`status ${property.isListed ? 'listed' : 'unlisted'}`}>
-                                                        {property.isSold ? 'Sold' : property.isListed ? 'Listed' : 'Not Listed'}
-                                                    </span>
-                                                    <span className="token-id">
-                                                        Token #{property.tokenId}
-                                                    </span>
-                                                </div>
-                                                
-                                                <div className="owner-badge">
-                                                    You own this property
+                                                <div className="property-details">
+                                                    <h3>{propertyName}</h3>
+                                                    {propertyAddress && (
+                                                        <p className="property-address">📍 {propertyAddress}</p>
+                                                    )}
+                                                    {propertyDescription && (
+                                                        <p className="property-description">{propertyDescription}</p>
+                                                    )}
+                                                    {ownerDetails && (
+                                                        <p className="owner-details">👤 {ownerDetails}</p>
+                                                    )}
+                                                    
+                                                    <div className="property-price">
+                                                        <div className="price-eth">
+                                                            {formatPrice(priceInWei)} ETH
+                                                        </div>
+                                                        <div className="price-usd">
+                                                            {formatUSDPrice(priceInUSD)}
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    <div className="property-status">
+                                                        <span className={`status ${isListed ? 'listed' : 'unlisted'}`}>
+                                                            {isSold ? 'Sold' : isListed ? 'Listed' : 'Not Listed'}
+                                                        </span>
+                                                        <span className="token-id">
+                                                            Token #{tokenId}
+                                                        </span>
+                                                    </div>
+                                                    
+                                                    <div className="owner-badge">
+                                                        You own this property
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             )}
                         </div>
@@ -1756,65 +1875,83 @@ const PropertyNFTMarketplace = () => {
                                 </div>
                             ) : (
                                 <div className="properties-grid">
-                                    {userExternalListings.map((listing, index) => (
-                                        <div key={index} className="property-card">
-                                            <div className="property-image-container">
-                                                <img 
-                                                    src={listing.imageURI} 
-                                                    alt={listing.name}
-                                                    className="property-image"
-                                                    onError={(e) => {
-                                                        console.log('External listing image failed to load:', listing.imageURI);
-                                                        e.target.src = 'https://via.placeholder.com/400x250?text=NFT+Image';
-                                                    }}
-                                                    onLoad={() => {
-                                                        console.log('External listing image loaded successfully:', listing.imageURI);
-                                                    }}
-                                                />
-                                                <div className="property-type-badge">
-                                                    <span className="type-badge external">
-                                                        External NFT
-                                                    </span>
-                                                </div>
-                                            </div>
-                                            
-                                            <div className="property-details">
-                                                <h3>{listing.name}</h3>
-                                                {listing.propertyAddress && (
-                                                    <p className="property-address">📍 {listing.propertyAddress}</p>
-                                                )}
-                                                {listing.description && (
-                                                    <p className="property-description">{listing.description}</p>
-                                                )}
-                                                
-                                                <div className="property-price">
-                                                    <div className="price-eth">
-                                                        {formatPrice(listing.priceInWei)} ETH
-                                                    </div>
-                                                    <div className="price-usd">
-                                                        {formatUSDPrice(listing.priceInUSD)}
+                                    {userExternalListings.map((listing, index) => {
+                                        // Safely access listing data with fallbacks
+                                        const listingName = listing?.name || 'Unnamed NFT';
+                                        const listingDescription = listing?.description || '';
+                                        const propertyAddress = listing?.propertyAddress || '';
+                                        const ownerDetails = listing?.ownerDetails || '';
+                                        const imageURI = getWorkingImageUrl(listing?.imageURI);
+                                        const priceInWei = listing?.priceInWei?.toString() || '0';
+                                        const priceInUSD = listing?.priceInUSD?.toString() || '0';
+                                        const listingId = listing?.listingId?.toString() || '0';
+                                        const isActive = listing?.isActive || false;
+                                        const isSold = listing?.isSold || false;
+                                        const nftContract = listing?.nftContract || '';
+
+                                        return (
+                                            <div key={index} className="property-card">
+                                                <div className="property-image-container">
+                                                    <img 
+                                                        src={imageURI} 
+                                                        alt={listingName}
+                                                        className="property-image"
+                                                        onError={(e) => {
+                                                            console.log('External listing image failed to load:', imageURI);
+                                                            e.target.src = 'https://via.placeholder.com/400x250?text=NFT+Image';
+                                                        }}
+                                                        onLoad={() => {
+                                                            console.log('External listing image loaded successfully:', imageURI);
+                                                        }}
+                                                    />
+                                                    <div className="property-type-badge">
+                                                        <span className="type-badge external">
+                                                            External NFT
+                                                        </span>
                                                     </div>
                                                 </div>
                                                 
-                                                <p className="owner">
-                                                    Contract: {formatAddress(listing.nftContract)}
-                                                </p>
-                                                
-                                                <div className="property-status">
-                                                    <span className={`status ${listing.isActive ? 'listed' : 'unlisted'}`}>
-                                                        {listing.isSold ? 'Sold' : listing.isActive ? 'Active' : 'Inactive'}
-                                                    </span>
-                                                    <span className="token-id">
-                                                        Listing #{listing.listingId}
-                                                    </span>
-                                                </div>
-                                                
-                                                <div className="owner-badge">
-                                                    Your listing
+                                                <div className="property-details">
+                                                    <h3>{listingName}</h3>
+                                                    {propertyAddress && (
+                                                        <p className="property-address">📍 {propertyAddress}</p>
+                                                    )}
+                                                    {listingDescription && (
+                                                        <p className="property-description">{listingDescription}</p>
+                                                    )}
+                                                    {ownerDetails && (
+                                                        <p className="owner-details">👤 {ownerDetails}</p>
+                                                    )}
+                                                    
+                                                    <div className="property-price">
+                                                        <div className="price-eth">
+                                                            {formatPrice(priceInWei)} ETH
+                                                        </div>
+                                                        <div className="price-usd">
+                                                            {formatUSDPrice(priceInUSD)}
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    <p className="owner">
+                                                        Contract: {formatAddress(nftContract)}
+                                                    </p>
+                                                    
+                                                    <div className="property-status">
+                                                        <span className={`status ${isActive ? 'listed' : 'unlisted'}`}>
+                                                            {isSold ? 'Sold' : isActive ? 'Active' : 'Inactive'}
+                                                        </span>
+                                                        <span className="token-id">
+                                                            Listing #{listingId}
+                                                        </span>
+                                                    </div>
+                                                    
+                                                    <div className="owner-badge">
+                                                        Your listing
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             )}
                         </div>
@@ -1904,4 +2041,4 @@ const PropertyNFTMarketplace = () => {
 };
 
 export default PropertyNFTMarketplace;
-          
+
