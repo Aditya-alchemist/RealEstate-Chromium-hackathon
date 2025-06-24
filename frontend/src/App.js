@@ -9,7 +9,16 @@ const PINATA_API_KEY = '223553f88ea60420fae4';
 const PINATA_SECRET_KEY = '36b531be959f28db2b3a9b8672fe4243dd82ccf518624ebbffd1b5b1280ec78d';
 
 // Your deployed contract address
-const CONTRACT_ADDRESS = '0x168725dc58f2F08257074D55735378C8Ba8b9D9b';
+const CONTRACT_ADDRESS = '0x0A47388e92d2c5aFF354CbCCC41fb8f80a0ef9Db';
+
+// Multiple IPFS gateways for better image loading reliability
+const IPFS_GATEWAYS = [
+    'https://gateway.pinata.cloud/ipfs/',
+    'https://ipfs.io/ipfs/',
+    'https://cloudflare-ipfs.com/ipfs/',
+    'https://dweb.link/ipfs/',
+    'https://gateway.ipfs.io/ipfs/'
+];
 
 const PropertyNFTMarketplace = () => {
     // State management
@@ -56,14 +65,12 @@ const PropertyNFTMarketplace = () => {
     useEffect(() => {
         initializeWeb3();
         
-        // Listen for account changes
         if (window.ethereum) {
             window.ethereum.on('accountsChanged', handleAccountsChanged);
             window.ethereum.on('chainChanged', handleChainChanged);
             window.ethereum.on('disconnect', handleDisconnect);
         }
 
-        // Cleanup listeners
         return () => {
             if (window.ethereum) {
                 window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
@@ -88,7 +95,6 @@ const PropertyNFTMarketplace = () => {
                 const web3Provider = new ethers.BrowserProvider(window.ethereum);
                 setProvider(web3Provider);
                 
-                // Check if already connected
                 const accounts = await window.ethereum.request({
                     method: 'eth_accounts'
                 });
@@ -107,7 +113,6 @@ const PropertyNFTMarketplace = () => {
 
     const handleAccountsChanged = async (accounts) => {
         if (accounts.length === 0) {
-            // User disconnected
             setAccount('');
             setContract(null);
             setSigner(null);
@@ -115,13 +120,11 @@ const PropertyNFTMarketplace = () => {
             setUserProperties([]);
             setUserExternalListings([]);
         } else if (accounts[0] !== account) {
-            // User switched accounts
             await connectWallet();
         }
     };
 
     const handleChainChanged = (chainId) => {
-        // Reload the page when chain changes
         window.location.reload();
     };
 
@@ -143,7 +146,6 @@ const PropertyNFTMarketplace = () => {
                 throw new Error('MetaMask is not installed. Please install MetaMask to continue.');
             }
 
-            // Request account access - this is CRITICAL for authorization
             const accounts = await window.ethereum.request({
                 method: 'eth_requestAccounts'
             });
@@ -152,17 +154,14 @@ const PropertyNFTMarketplace = () => {
                 throw new Error('No accounts found. Please unlock MetaMask and try again.');
             }
             
-            // Create provider and signer
             const web3Provider = new ethers.BrowserProvider(window.ethereum);
             const web3Signer = await web3Provider.getSigner();
             
-            // Verify the signer address matches the connected account
             const signerAddress = await web3Signer.getAddress();
             if (signerAddress.toLowerCase() !== accounts[0].toLowerCase()) {
                 throw new Error('Signer address mismatch. Please refresh and try again.');
             }
             
-            // Get network info
             const network = await web3Provider.getNetwork();
             console.log('Connected to network:', network.name, 'Chain ID:', network.chainId);
             
@@ -170,15 +169,13 @@ const PropertyNFTMarketplace = () => {
             setSigner(web3Signer);
             setAccount(accounts[0]);
             
-            // Create contract instance with proper signer
             try {
                 const contractInstance = new ethers.Contract(
                     CONTRACT_ADDRESS,
                     contractABI,
-                    web3Signer // Use signer instead of provider for write operations
+                    web3Signer
                 );
                 
-                // Test contract connection
                 const contractName = await contractInstance.name();
                 console.log('Connected to contract:', contractName);
                 
@@ -193,7 +190,6 @@ const PropertyNFTMarketplace = () => {
         } catch (err) {
             console.error('Wallet connection error:', err);
             
-            // Handle specific MetaMask errors
             if (err.code === 4001) {
                 setError('Connection rejected. Please approve the connection request in MetaMask.');
             } else if (err.code === -32002) {
@@ -206,16 +202,63 @@ const PropertyNFTMarketplace = () => {
         }
     };
 
+    const disconnectWallet = () => {
+        setAccount('');
+        setContract(null);
+        setSigner(null);
+        setProvider(null);
+        setListedProperties([]);
+        setUserProperties([]);
+        setUserExternalListings([]);
+        setSuccess('Wallet disconnected successfully');
+    };
+
+    // Helper function to get working IPFS URL with multiple gateway fallbacks
+    const getWorkingImageUrl = (ipfsUrl) => {
+        if (!ipfsUrl) return 'https://via.placeholder.com/400x250?text=Property+Image';
+        
+        let hash = '';
+        if (ipfsUrl.includes('/ipfs/')) {
+            hash = ipfsUrl.split('/ipfs/')[1];
+        } else if (ipfsUrl.startsWith('ipfs://')) {
+            hash = ipfsUrl.replace('ipfs://', '');
+        } else if (ipfsUrl.includes('Qm') || ipfsUrl.includes('bafy')) {
+            hash = ipfsUrl;
+        }
+        
+        if (!hash) return 'https://via.placeholder.com/400x250?text=Property+Image';
+        
+        // Return Pinata gateway URL (most reliable)
+        return `https://gateway.pinata.cloud/ipfs/${hash}`;
+    };
+
+    // Helper function to format USD price correctly
+    const formatUSDPrice = (priceInUSD) => {
+        if (!priceInUSD || priceInUSD === '0') return 'Price unavailable';
+        
+        try {
+            // Convert from 8 decimal places to regular number
+            const usdValue = parseFloat(priceInUSD) / 100000000;
+            return usdValue.toLocaleString('en-US', {
+                style: 'currency',
+                currency: 'USD',
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            });
+        } catch (err) {
+            console.error('Error formatting USD price:', err);
+            return 'Price unavailable';
+        }
+    };
+
     const handleImageUpload = (event, isExternal = false) => {
         const file = event.target.files[0];
         if (file) {
-            // Validate file type
             if (!file.type.startsWith('image/')) {
                 setError('Please select a valid image file (JPEG, PNG, GIF, etc.)');
                 return;
             }
             
-            // Validate file size (10MB limit)
             if (file.size > 10 * 1024 * 1024) {
                 setError('File size must be less than 10MB');
                 return;
@@ -240,11 +283,9 @@ const PropertyNFTMarketplace = () => {
         try {
             console.log('Starting Pinata upload...');
             
-            // Create FormData for file upload
             const formData = new FormData();
             formData.append('file', file);
             
-            // Add metadata
             const pinataMetadata = JSON.stringify({
                 name: `Property-${Date.now()}-${file.name}`,
                 keyvalues: {
@@ -254,7 +295,6 @@ const PropertyNFTMarketplace = () => {
             });
             formData.append('pinataMetadata', pinataMetadata);
             
-            // Upload file to Pinata
             const response = await axios.post(
                 'https://api.pinata.cloud/pinning/pinFileToIPFS',
                 formData,
@@ -304,7 +344,6 @@ const PropertyNFTMarketplace = () => {
             setError('');
             setSuccess('');
             
-            // Validation
             if (!selectedImage) {
                 throw new Error('Please select an image');
             }
@@ -325,7 +364,6 @@ const PropertyNFTMarketplace = () => {
                 throw new Error('Please connect your wallet first');
             }
 
-            // Verify we still have access to the account
             const currentAccounts = await window.ethereum.request({
                 method: 'eth_accounts'
             });
@@ -336,12 +374,10 @@ const PropertyNFTMarketplace = () => {
             
             setSuccess('Uploading image to IPFS...');
             
-            // Upload image to IPFS
             const imageURI = await uploadToPinata(selectedImage);
             
             setSuccess('Image uploaded! Creating property NFT...');
             
-            // Prepare property parameters
             const priceInWei = ethers.parseEther(propertyForm.priceInETH.toString());
             const propertyParams = {
                 name: propertyForm.name.trim(),
@@ -354,15 +390,13 @@ const PropertyNFTMarketplace = () => {
             
             console.log('Creating property with params:', propertyParams);
             
-            // Estimate gas first
             try {
                 const gasEstimate = await contract.mintProperty.estimateGas(propertyParams);
-                const gasLimit = gasEstimate * 120n / 100n; // Add 20% buffer
+                const gasLimit = gasEstimate * 120n / 100n;
                 
                 console.log('Gas estimate:', gasEstimate.toString());
                 console.log('Gas limit:', gasLimit.toString());
                 
-                // Create property NFT
                 const tx = await contract.mintProperty(propertyParams, {
                     gasLimit: gasLimit
                 });
@@ -375,7 +409,6 @@ const PropertyNFTMarketplace = () => {
                 
                 setSuccess('Property NFT created and listed successfully!');
                 
-                // Reset form
                 setPropertyForm({
                     name: '',
                     description: '',
@@ -386,7 +419,6 @@ const PropertyNFTMarketplace = () => {
                 setSelectedImage(null);
                 setImagePreview('');
                 
-                // Reload data
                 setTimeout(() => {
                     loadMarketplaceData();
                     loadUserProperties();
@@ -420,7 +452,6 @@ const PropertyNFTMarketplace = () => {
             setError('');
             setSuccess('');
             
-            // Validation
             if (!externalImage) {
                 throw new Error('Please select an image');
             }
@@ -449,7 +480,6 @@ const PropertyNFTMarketplace = () => {
                 throw new Error('Please connect your wallet first');
             }
 
-            // Verify we still have access to the account
             const currentAccounts = await window.ethereum.request({
                 method: 'eth_accounts'
             });
@@ -460,12 +490,10 @@ const PropertyNFTMarketplace = () => {
             
             setSuccess('Uploading image to IPFS...');
             
-            // Upload image to IPFS
             const imageURI = await uploadToPinata(externalImage);
             
             setSuccess('Image uploaded! Listing external NFT...');
             
-            // Prepare external listing parameters
             const priceInWei = ethers.parseEther(externalNFTForm.priceInETH.toString());
             const externalParams = {
                 nftContract: externalNFTForm.nftContract.trim(),
@@ -480,12 +508,10 @@ const PropertyNFTMarketplace = () => {
             
             console.log('Listing external NFT with params:', externalParams);
             
-            // Estimate gas first
             try {
                 const gasEstimate = await contract.listExternalNFT.estimateGas(externalParams);
-                const gasLimit = gasEstimate * 120n / 100n; // Add 20% buffer
+                const gasLimit = gasEstimate * 120n / 100n;
                 
-                // List external NFT
                 const tx = await contract.listExternalNFT(externalParams, {
                     gasLimit: gasLimit
                 });
@@ -498,7 +524,6 @@ const PropertyNFTMarketplace = () => {
                 
                 setSuccess('External NFT listed successfully!');
                 
-                // Reset form
                 setExternalNFTForm({
                     nftContract: '',
                     tokenId: '',
@@ -511,7 +536,6 @@ const PropertyNFTMarketplace = () => {
                 setExternalImage(null);
                 setExternalImagePreview('');
                 
-                // Reload data
                 setTimeout(() => {
                     loadMarketplaceData();
                     loadUserExternalListings();
@@ -547,7 +571,6 @@ const PropertyNFTMarketplace = () => {
                 throw new Error('Please connect your wallet first');
             }
 
-            // Verify we still have access to the account
             const currentAccounts = await window.ethereum.request({
                 method: 'eth_accounts'
             });
@@ -558,12 +581,11 @@ const PropertyNFTMarketplace = () => {
             
             console.log('Purchasing property:', { tokenId, priceInWei });
             
-            // Estimate gas first
             try {
                 const gasEstimate = await contract.purchaseProperty.estimateGas(tokenId, {
                     value: priceInWei
                 });
-                const gasLimit = gasEstimate * 120n / 100n; // Add 20% buffer
+                const gasLimit = gasEstimate * 120n / 100n;
                 
                 const tx = await contract.purchaseProperty(tokenId, {
                     value: priceInWei,
@@ -574,7 +596,6 @@ const PropertyNFTMarketplace = () => {
                 const receipt = await tx.wait();
                 setSuccess('Property purchased successfully!');
                 
-                // Reload data
                 setTimeout(() => {
                     loadMarketplaceData();
                     loadUserProperties();
@@ -610,7 +631,6 @@ const PropertyNFTMarketplace = () => {
                 throw new Error('Please connect your wallet first');
             }
 
-            // Verify we still have access to the account
             const currentAccounts = await window.ethereum.request({
                 method: 'eth_accounts'
             });
@@ -621,12 +641,11 @@ const PropertyNFTMarketplace = () => {
             
             console.log('Purchasing external NFT:', { listingId, priceInWei });
             
-            // Estimate gas first
             try {
                 const gasEstimate = await contract.purchaseExternalNFT.estimateGas(listingId, {
                     value: priceInWei
                 });
-                const gasLimit = gasEstimate * 120n / 100n; // Add 20% buffer
+                const gasLimit = gasEstimate * 120n / 100n;
                 
                 const tx = await contract.purchaseExternalNFT(listingId, {
                     value: priceInWei,
@@ -637,7 +656,6 @@ const PropertyNFTMarketplace = () => {
                 const receipt = await tx.wait();
                 setSuccess('External NFT purchased successfully!');
                 
-                // Reload data
                 setTimeout(() => {
                     loadMarketplaceData();
                     loadUserExternalListings();
@@ -663,14 +681,13 @@ const PropertyNFTMarketplace = () => {
         }
     };
 
-    // Enhanced loadMarketplaceData with better error handling
+    // Enhanced loadMarketplaceData with better error handling and USD price formatting
     const loadMarketplaceData = async () => {
         try {
             if (!contract) return;
             
             console.log('Loading marketplace data...');
             
-            // Load internal properties using the contract's getter function
             const listedTokenIds = await contract.getListedProperties();
             console.log('Listed token IDs:', listedTokenIds);
             
@@ -678,40 +695,57 @@ const PropertyNFTMarketplace = () => {
             
             for (let tokenId of listedTokenIds) {
                 try {
-                    // Enhanced validation
                     const tokenIdNum = Number(tokenId);
                     if (tokenIdNum <= 0) {
                         console.warn(`Invalid token ID: ${tokenId}`);
                         continue;
                     }
                     
-                    // Check if property exists first
                     const propertyExists = await contract.propertyExists(tokenId);
                     console.log(`Property ${tokenId} exists:`, propertyExists);
                     
                     if (propertyExists) {
-                        const [propertyWithDetails, priceInUSD] = await contract.getPropertyWithUSDPrice(tokenId);
-                        console.log(`Property ${tokenId} details:`, propertyWithDetails);
-                        
-                        // Additional validation
-                        if (propertyWithDetails.exists && propertyWithDetails.isListed && !propertyWithDetails.isSold) {
-                            internalProperties.push({
-                                ...propertyWithDetails,
-                                priceInUSD: priceInUSD.toString(),
-                                isInternal: true,
-                                tokenId: tokenId.toString(),
-                                priceInWei: propertyWithDetails.priceInWei.toString(),
-                                owner: propertyWithDetails.owner
-                            });
+                        try {
+                            const [propertyWithDetails, priceInUSD] = await contract.getPropertyWithUSDPrice(tokenId);
+                            console.log(`Property ${tokenId} details:`, propertyWithDetails);
+                            console.log(`Property ${tokenId} USD price:`, priceInUSD.toString());
+                            
+                            if (propertyWithDetails.exists && propertyWithDetails.isListed && !propertyWithDetails.isSold) {
+                                internalProperties.push({
+                                    ...propertyWithDetails,
+                                    priceInUSD: priceInUSD.toString(),
+                                    isInternal: true,
+                                    tokenId: tokenId.toString(),
+                                    priceInWei: propertyWithDetails.priceInWei.toString(),
+                                    owner: propertyWithDetails.owner,
+                                    imageURI: getWorkingImageUrl(propertyWithDetails.imageURI)
+                                });
+                            }
+                        } catch (priceError) {
+                            console.error(`Error getting price for property ${tokenId}:`, priceError);
+                            try {
+                                const property = await contract.properties(tokenId);
+                                if (property.exists && property.isListed && !property.isSold) {
+                                    internalProperties.push({
+                                        ...property,
+                                        priceInUSD: '0',
+                                        isInternal: true,
+                                        tokenId: tokenId.toString(),
+                                        priceInWei: property.priceInWei.toString(),
+                                        owner: property.owner,
+                                        imageURI: getWorkingImageUrl(property.imageURI)
+                                    });
+                                }
+                            } catch (fallbackError) {
+                                console.error(`Fallback failed for property ${tokenId}:`, fallbackError);
+                            }
                         }
                     }
                 } catch (err) {
                     console.error(`Error loading property ${tokenId}:`, err);
-                    // Continue with next property instead of breaking
                 }
             }
             
-            // Load external listings
             const externalListingIds = await contract.getActiveExternalListings();
             console.log('External listing IDs:', externalListingIds);
             
@@ -719,36 +753,54 @@ const PropertyNFTMarketplace = () => {
             
             for (let listingId of externalListingIds) {
                 try {
-                    // Enhanced validation
                     const listingIdNum = Number(listingId);
                     if (listingIdNum <= 0) {
                         console.warn(`Invalid listing ID: ${listingId}`);
                         continue;
                     }
                     
-                    // Check if listing exists first
                     const listingExists = await contract.externalListingExists(listingId);
                     console.log(`External listing ${listingId} exists:`, listingExists);
                     
                     if (listingExists) {
-                        const [listingWithDetails, priceInUSD] = await contract.getExternalListingWithUSDPrice(listingId);
-                        console.log(`External listing ${listingId} details:`, listingWithDetails);
-                        
-                        // Additional validation
-                        if (listingWithDetails.exists && listingWithDetails.isActive && !listingWithDetails.isSold) {
-                            externalListings.push({
-                                ...listingWithDetails,
-                                priceInUSD: priceInUSD.toString(),
-                                isInternal: false,
-                                listingId: listingId.toString(),
-                                priceInWei: listingWithDetails.priceInWei.toString(),
-                                owner: listingWithDetails.owner
-                            });
+                        try {
+                            const [listingWithDetails, priceInUSD] = await contract.getExternalListingWithUSDPrice(listingId);
+                            console.log(`External listing ${listingId} details:`, listingWithDetails);
+                            console.log(`External listing ${listingId} USD price:`, priceInUSD.toString());
+                            
+                            if (listingWithDetails.exists && listingWithDetails.isActive && !listingWithDetails.isSold) {
+                                externalListings.push({
+                                    ...listingWithDetails,
+                                    priceInUSD: priceInUSD.toString(),
+                                    isInternal: false,
+                                    listingId: listingId.toString(),
+                                    priceInWei: listingWithDetails.priceInWei.toString(),
+                                    owner: listingWithDetails.owner,
+                                    imageURI: getWorkingImageUrl(listingWithDetails.imageURI)
+                                });
+                            }
+                        } catch (priceError) {
+                            console.error(`Error getting price for listing ${listingId}:`, priceError);
+                            try {
+                                const listing = await contract.externalListings(listingId);
+                                if (listing.exists && listing.isActive && !listing.isSold) {
+                                    externalListings.push({
+                                        ...listing,
+                                        priceInUSD: '0',
+                                        isInternal: false,
+                                        listingId: listingId.toString(),
+                                        priceInWei: listing.priceInWei.toString(),
+                                        owner: listing.owner,
+                                        imageURI: getWorkingImageUrl(listing.imageURI)
+                                    });
+                                }
+                            } catch (fallbackError) {
+                                console.error(`Fallback failed for listing ${listingId}:`, fallbackError);
+                            }
                         }
                     }
                 } catch (err) {
                     console.error(`Error loading external listing ${listingId}:`, err);
-                    // Continue with next listing instead of breaking
                 }
             }
             
@@ -762,14 +814,13 @@ const PropertyNFTMarketplace = () => {
         }
     };
 
-    // Enhanced loadUserProperties with better error handling
+    // Enhanced loadUserProperties with better error handling and USD price formatting
     const loadUserProperties = async () => {
         try {
             if (!contract || !account) return;
             
             console.log('Loading user properties for:', account);
             
-            // Get user's token IDs from the contract
             const userTokenIds = await contract.getUserProperties(account);
             console.log('User token IDs:', userTokenIds);
             
@@ -777,34 +828,50 @@ const PropertyNFTMarketplace = () => {
             
             for (let tokenId of userTokenIds) {
                 try {
-                    // Enhanced validation
                     const tokenIdNum = Number(tokenId);
                     if (tokenIdNum <= 0) {
                         console.warn(`Invalid user token ID: ${tokenId}`);
                         continue;
                     }
                     
-                    // Check if property exists first
                     const propertyExists = await contract.propertyExists(tokenId);
                     console.log(`User property ${tokenId} exists:`, propertyExists);
                     
                     if (propertyExists) {
-                        const [propertyWithDetails, priceInUSD] = await contract.getPropertyWithUSDPrice(tokenId);
-                        console.log(`User property ${tokenId} details:`, propertyWithDetails);
-                        
-                        // Validate ownership
-                        if (propertyWithDetails.exists) {
-                            properties.push({
-                                ...propertyWithDetails,
-                                priceInUSD: priceInUSD.toString(),
-                                tokenId: tokenId.toString(),
-                                priceInWei: propertyWithDetails.priceInWei.toString()
-                            });
+                        try {
+                            const [propertyWithDetails, priceInUSD] = await contract.getPropertyWithUSDPrice(tokenId);
+                            console.log(`User property ${tokenId} details:`, propertyWithDetails);
+                            console.log(`User property ${tokenId} USD price:`, priceInUSD.toString());
+                            
+                            if (propertyWithDetails.exists) {
+                                properties.push({
+                                    ...propertyWithDetails,
+                                    priceInUSD: priceInUSD.toString(),
+                                    tokenId: tokenId.toString(),
+                                    priceInWei: propertyWithDetails.priceInWei.toString(),
+                                    imageURI: getWorkingImageUrl(propertyWithDetails.imageURI)
+                                });
+                            }
+                        } catch (priceError) {
+                            console.error(`Error getting price for user property ${tokenId}:`, priceError);
+                            try {
+                                const property = await contract.properties(tokenId);
+                                if (property.exists) {
+                                    properties.push({
+                                        ...property,
+                                        priceInUSD: '0',
+                                        tokenId: tokenId.toString(),
+                                        priceInWei: property.priceInWei.toString(),
+                                        imageURI: getWorkingImageUrl(property.imageURI)
+                                    });
+                                }
+                            } catch (fallbackError) {
+                                console.error(`Fallback failed for user property ${tokenId}:`, fallbackError);
+                            }
                         }
                     }
                 } catch (err) {
                     console.error(`Error loading user property ${tokenId}:`, err);
-                    // Continue with next property instead of breaking
                 }
             }
             
@@ -817,14 +884,13 @@ const PropertyNFTMarketplace = () => {
         }
     };
 
-    // Enhanced loadUserExternalListings with better error handling
+    // Enhanced loadUserExternalListings with better error handling and USD price formatting
     const loadUserExternalListings = async () => {
         try {
             if (!contract || !account) return;
             
             console.log('Loading user external listings for:', account);
             
-            // Get user's external listing IDs from the contract
             const userListingIds = await contract.getUserExternalListings(account);
             console.log('User external listing IDs:', userListingIds);
             
@@ -832,34 +898,50 @@ const PropertyNFTMarketplace = () => {
             
             for (let listingId of userListingIds) {
                 try {
-                    // Enhanced validation
                     const listingIdNum = Number(listingId);
                     if (listingIdNum <= 0) {
                         console.warn(`Invalid user listing ID: ${listingId}`);
                         continue;
                     }
                     
-                    // Check if listing exists first
                     const listingExists = await contract.externalListingExists(listingId);
                     console.log(`User external listing ${listingId} exists:`, listingExists);
                     
                     if (listingExists) {
-                        const [listingWithDetails, priceInUSD] = await contract.getExternalListingWithUSDPrice(listingId);
-                        console.log(`User external listing ${listingId} details:`, listingWithDetails);
-                        
-                        // Validate ownership
-                        if (listingWithDetails.exists) {
-                            listings.push({
-                                ...listingWithDetails,
-                                priceInUSD: priceInUSD.toString(),
-                                listingId: listingId.toString(),
-                                priceInWei: listingWithDetails.priceInWei.toString()
-                            });
+                        try {
+                            const [listingWithDetails, priceInUSD] = await contract.getExternalListingWithUSDPrice(listingId);
+                            console.log(`User external listing ${listingId} details:`, listingWithDetails);
+                            console.log(`User external listing ${listingId} USD price:`, priceInUSD.toString());
+                            
+                            if (listingWithDetails.exists) {
+                                listings.push({
+                                    ...listingWithDetails,
+                                    priceInUSD: priceInUSD.toString(),
+                                    listingId: listingId.toString(),
+                                    priceInWei: listingWithDetails.priceInWei.toString(),
+                                    imageURI: getWorkingImageUrl(listingWithDetails.imageURI)
+                                });
+                            }
+                        } catch (priceError) {
+                            console.error(`Error getting price for user listing ${listingId}:`, priceError);
+                            try {
+                                const listing = await contract.externalListings(listingId);
+                                if (listing.exists) {
+                                    listings.push({
+                                        ...listing,
+                                        priceInUSD: '0',
+                                        listingId: listingId.toString(),
+                                        priceInWei: listing.priceInWei.toString(),
+                                        imageURI: getWorkingImageUrl(listing.imageURI)
+                                    });
+                                }
+                            } catch (fallbackError) {
+                                console.error(`Fallback failed for user listing ${listingId}:`, fallbackError);
+                            }
                         }
                     }
                 } catch (err) {
                     console.error(`Error loading user external listing ${listingId}:`, err);
-                    // Continue with next listing instead of breaking
                 }
             }
             
@@ -872,66 +954,71 @@ const PropertyNFTMarketplace = () => {
         }
     };
 
-    // Helper functions
-    const formatAddress = (address) => {
-        if (!address || typeof address !== 'string') {
-            return '';
-        }
-        
-        const addressStr = address.toString();
-        if (addressStr.length < 10) {
-            return addressStr;
-        }
-        
-        return `${addressStr.slice(0, 6)}...${addressStr.slice(-4)}`;
-    };
-
-    const formatPrice = (priceInWei) => {
-        try {
-            if (!priceInWei) return '0';
-            return ethers.formatEther(priceInWei.toString());
-        } catch (err) {
-            console.error('Error formatting price:', err);
-            return '0';
+    const refreshData = async () => {
+        if (contract && account) {
+            setLoading(true);
+            try {
+                await Promise.all([
+                    loadMarketplaceData(),
+                    loadUserProperties(),
+                    loadUserExternalListings()
+                ]);
+                setSuccess('Data refreshed successfully!');
+            } catch (err) {
+                setError('Failed to refresh data: ' + err.message);
+            } finally {
+                setLoading(false);
+            }
         }
     };
 
-    const clearMessages = () => {
+    const closeMessage = () => {
         setError('');
         setSuccess('');
     };
 
+    const formatAddress = (address) => {
+        if (!address) return '';
+        return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
+    };
+
+    const formatPrice = (priceInWei) => {
+        try {
+            return ethers.formatEther(priceInWei);
+        } catch {
+            return '0';
+        }
+    };
+
     return (
         <div className="app-container">
+            {/* Header */}
             <header className="header">
                 <div className="header-content">
-                    <h1 className="header-title">🏠 PropertyNFT Marketplace</h1>
+                    <h1 className="header-title">PropertyNFT Marketplace</h1>
                     <div className="header-info">
                         <div className="contract-info">
                             Contract: {formatAddress(CONTRACT_ADDRESS)}
                         </div>
                         {!account ? (
                             <button 
-                                onClick={connectWallet} 
-                                disabled={isConnecting} 
-                                className="connect-btn"
+                                className="connect-btn" 
+                                onClick={connectWallet}
+                                disabled={isConnecting}
                             >
-                                {isConnecting ? 'Connecting...' : 'Connect Wallet'}
+                                {isConnecting ? (
+                                    <>
+                                        <span className="loading-spinner"></span>
+                                        Connecting...
+                                    </>
+                                ) : (
+                                    'Connect Wallet'
+                                )}
                             </button>
                         ) : (
                             <div className="account-info">
                                 <span>Connected: {formatAddress(account)}</span>
-                                <button 
-                                    onClick={() => {
-                                        setAccount('');
-                                        setContract(null);
-                                        setSigner(null);
-                                        setListedProperties([]);
-                                        setUserProperties([]);
-                                        setUserExternalListings([]);
-                                    }}
-                                    className="disconnect-btn"
-                                >
+                                <button className="disconnect-btn" onClick={disconnectWallet}>
                                     Disconnect
                                 </button>
                             </div>
@@ -940,76 +1027,91 @@ const PropertyNFTMarketplace = () => {
                 </div>
             </header>
 
+            {/* Error/Success Messages */}
             {error && (
                 <div className="error-message">
                     <span>{error}</span>
-                    <button onClick={clearMessages} className="close-btn">×</button>
+                    <button className="close-btn" onClick={closeMessage}>×</button>
                 </div>
             )}
-            
+
             {success && (
                 <div className="success-message">
                     <span>{success}</span>
-                    <button onClick={clearMessages} className="close-btn">×</button>
+                    <button className="close-btn" onClick={closeMessage}>×</button>
                 </div>
             )}
 
+            {/* Tab Navigation */}
             {account && (
-                <>
-                    <nav className="tab-navigation">
-                        <button 
-                            className={activeTab === 'marketplace' ? 'active' : ''}
-                            onClick={() => setActiveTab('marketplace')}
-                        >
-                            🏪 Marketplace ({listedProperties.length})
-                        </button>
-                        <button 
-                            className={activeTab === 'create' ? 'active' : ''}
-                            onClick={() => setActiveTab('create')}
-                        >
-                            ➕ Create Property
-                        </button>
-                        <button 
-                            className={activeTab === 'list-external' ? 'active' : ''}
-                            onClick={() => setActiveTab('list-external')}
-                        >
-                            📋 List External NFT
-                        </button>
-                        <button 
-                            className={activeTab === 'my-properties' ? 'active' : ''}
-                            onClick={() => setActiveTab('my-properties')}
-                        >
-                            🏡 My Properties ({userProperties.length})
-                        </button>
-                        <button 
-                            className={activeTab === 'my-listings' ? 'active' : ''}
-                            onClick={() => setActiveTab('my-listings')}
-                        >
-                            📝 My Listings ({userExternalListings.length})
-                        </button>
-                    </nav>
+                <div className="tab-navigation">
+                    <button 
+                        className={activeTab === 'marketplace' ? 'active' : ''}
+                        onClick={() => setActiveTab('marketplace')}
+                    >
+                        Marketplace
+                    </button>
+                    <button 
+                        className={activeTab === 'create' ? 'active' : ''}
+                        onClick={() => setActiveTab('create')}
+                    >
+                        Create Property
+                    </button>
+                    <button 
+                        className={activeTab === 'list-external' ? 'active' : ''}
+                        onClick={() => setActiveTab('list-external')}
+                    >
+                        List External NFT
+                    </button>
+                    <button 
+                        className={activeTab === 'my-properties' ? 'active' : ''}
+                        onClick={() => setActiveTab('my-properties')}
+                    >
+                        My Properties
+                    </button>
+                    <button 
+                        className={activeTab === 'my-listings' ? 'active' : ''}
+                        onClick={() => setActiveTab('my-listings')}
+                    >
+                        My External Listings
+                    </button>
+                </div>
+            )}
 
+            {/* Main Content */}
+            {!account ? (
+                <div className="empty-state">
+                    <div className="empty-icon">🏠</div>
+                    <h3>Welcome to PropertyNFT Marketplace</h3>
+                    <p>Connect your wallet to start buying, selling, and creating property NFTs</p>
+                    <button className="create-first-btn" onClick={connectWallet}>
+                        Connect Wallet to Get Started
+                    </button>
+                </div>
+            ) : (
+                <>
+                    {/* Marketplace Tab */}
                     {activeTab === 'marketplace' && (
                         <div className="marketplace-section">
                             <div className="section-header">
-                                <h2>🏪 Available Properties & NFTs</h2>
+                                <h2>Property Marketplace</h2>
                                 <button 
-                                    onClick={loadMarketplaceData} 
+                                    className="refresh-btn" 
+                                    onClick={refreshData}
                                     disabled={loading}
-                                    className="refresh-btn"
                                 >
-                                    {loading ? '🔄 Loading...' : '🔄 Refresh'}
+                                    {loading ? 'Refreshing...' : 'Refresh'}
                                 </button>
                             </div>
-                            
+
                             {listedProperties.length === 0 ? (
                                 <div className="empty-state">
-                                    <div className="empty-icon">🏠</div>
-                                    <h3>No Properties Available</h3>
-                                    <p>Be the first to list a property on our marketplace!</p>
+                                    <div className="empty-icon">🏘️</div>
+                                    <h3>No Properties Listed</h3>
+                                    <p>Be the first to list a property on the marketplace!</p>
                                     <button 
+                                        className="create-first-btn" 
                                         onClick={() => setActiveTab('create')}
-                                        className="create-first-btn"
                                     >
                                         Create First Property
                                     </button>
@@ -1017,40 +1119,70 @@ const PropertyNFTMarketplace = () => {
                             ) : (
                                 <div className="properties-grid">
                                     {listedProperties.map((property, index) => (
-                                        <div key={`${property.isInternal ? 'internal' : 'external'}-${property.tokenId || property.listingId}-${index}`} className="property-card">
+                                        <div key={index} className="property-card">
                                             <div className="property-image-container">
                                                 <img 
                                                     src={property.imageURI} 
                                                     alt={property.name}
                                                     className="property-image"
                                                     onError={(e) => {
-                                                        e.target.src = 'https://via.placeholder.com/300x200?text=Image+Not+Found';
+                                                        console.log('Image failed to load:', property.imageURI);
+                                                        e.target.src = 'https://via.placeholder.com/400x250?text=Property+Image';
+                                                    }}
+                                                    onLoad={() => {
+                                                        console.log('Image loaded successfully:', property.imageURI);
                                                     }}
                                                 />
                                                 <div className="property-type-badge">
                                                     <span className={`type-badge ${property.isInternal ? 'internal' : 'external'}`}>
-                                                        {property.isInternal ? '🏠 Internal NFT' : '🔗 External NFT'}
+                                                        {property.isInternal ? 'Internal NFT' : 'External NFT'}
                                                     </span>
                                                 </div>
                                             </div>
+                                            
                                             <div className="property-details">
                                                 <h3>{property.name}</h3>
-                                                <p className="property-address">📍 {property.propertyAddress}</p>
+                                                {property.propertyAddress && (
+                                                    <p className="property-address">📍 {property.propertyAddress}</p>
+                                                )}
                                                 {property.description && (
                                                     <p className="property-description">{property.description}</p>
                                                 )}
+                                                
                                                 <div className="property-price">
                                                     <div className="price-eth">
-                                                        💎 {formatPrice(property.priceInWei)} ETH
+                                                        {formatPrice(property.priceInWei)} ETH
                                                     </div>
                                                     <div className="price-usd">
-                                                        💵 ~${property.priceInUSD} USD
+                                                        {formatUSDPrice(property.priceInUSD)}
                                                     </div>
                                                 </div>
-                                                <p className="owner">👤 Owner: {formatAddress(property.owner)}</p>
                                                 
-                                                {property.owner && property.owner.toLowerCase() !== account.toLowerCase() && (
+                                                <p className="owner">
+                                                    Owner: {formatAddress(property.owner)}
+                                                </p>
+                                                
+                                                <div className="property-status">
+                                                    <span className="status listed">Listed</span>
+                                                    {property.isInternal && (
+                                                        <span className="token-id">
+                                                            Token #{property.tokenId}
+                                                        </span>
+                                                    )}
+                                                    {!property.isInternal && (
+                                                        <span className="token-id">
+                                                            Listing #{property.listingId}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                
+                                                {property.owner.toLowerCase() === account.toLowerCase() ? (
+                                                    <div className="owner-badge">
+                                                        You own this property
+                                                    </div>
+                                                ) : (
                                                     <button 
+                                                        className="purchase-btn"
                                                         onClick={() => {
                                                             if (property.isInternal) {
                                                                 purchaseProperty(property.tokenId, property.priceInWei);
@@ -1059,13 +1191,9 @@ const PropertyNFTMarketplace = () => {
                                                             }
                                                         }}
                                                         disabled={loading}
-                                                        className="purchase-btn"
                                                     >
-                                                        {loading ? '⏳ Processing...' : '🛒 Purchase Now'}
+                                                        {loading ? 'Processing...' : 'Buy Now'}
                                                     </button>
-                                                )}
-                                                {property.owner && property.owner.toLowerCase() === account.toLowerCase() && (
-                                                    <div className="owner-badge">✅ You own this property</div>
                                                 )}
                                             </div>
                                         </div>
@@ -1075,20 +1203,76 @@ const PropertyNFTMarketplace = () => {
                         </div>
                     )}
 
+                    {/* Create Property Tab */}
                     {activeTab === 'create' && (
                         <div className="create-section">
                             <div className="section-header">
-                                <h2>➕ Create New Property NFT</h2>
+                                <h2>Create Property NFT</h2>
                             </div>
+
                             <div className="create-form">
                                 <div className="form-group">
-                                    <label>🖼️ Property Image *</label>
-                                    <input 
-                                        type="file" 
+                                    <label>Property Name *</label>
+                                    <input
+                                        type="text"
+                                        className="text-input"
+                                        placeholder="Enter property name"
+                                        value={propertyForm.name}
+                                        onChange={(e) => setPropertyForm({...propertyForm, name: e.target.value})}
+                                    />
+                                </div>
+
+                                <div className="form-group">
+                                    <label>Property Address *</label>
+                                    <input
+                                        type="text"
+                                        className="text-input"
+                                        placeholder="Enter property address"
+                                        value={propertyForm.propertyAddress}
+                                        onChange={(e) => setPropertyForm({...propertyForm, propertyAddress: e.target.value})}
+                                    />
+                                </div>
+
+                                <div className="form-group">
+                                    <label>Description</label>
+                                    <textarea
+                                        className="textarea-input"
+                                        placeholder="Enter property description"
+                                        value={propertyForm.description}
+                                        onChange={(e) => setPropertyForm({...propertyForm, description: e.target.value})}
+                                    />
+                                </div>
+
+                                <div className="form-group">
+                                    <label>Owner Details</label>
+                                    <input
+                                        type="text"
+                                        className="text-input"
+                                        placeholder="Enter owner details"
+                                        value={propertyForm.ownerDetails}
+                                        onChange={(e) => setPropertyForm({...propertyForm, ownerDetails: e.target.value})}
+                                    />
+                                </div>
+
+                                <div className="form-group">
+                                    <label>Price in ETH *</label>
+                                    <input
+                                        type="number"
+                                        step="0.001"
+                                        className="text-input"
+                                        placeholder="Enter price in ETH"
+                                        value={propertyForm.priceInETH}
+                                        onChange={(e) => setPropertyForm({...propertyForm, priceInETH: e.target.value})}
+                                    />
+                                </div>
+
+                                <div className="form-group">
+                                    <label>Property Image *</label>
+                                    <input
+                                        type="file"
                                         accept="image/*"
-                                        onChange={(e) => handleImageUpload(e, false)}
                                         className="file-input"
-                                        disabled={loading}
+                                        onChange={(e) => handleImageUpload(e, false)}
                                     />
                                     {imagePreview && (
                                         <div className="image-preview-container">
@@ -1097,93 +1281,116 @@ const PropertyNFTMarketplace = () => {
                                     )}
                                 </div>
 
-                                <div className="form-group">
-                                    <label>🏠 Property Name *</label>
-                                    <input 
-                                        type="text"
-                                        value={propertyForm.name}
-                                        onChange={(e) => setPropertyForm({...propertyForm, name: e.target.value})}
-                                        placeholder="Enter property name"
-                                        className="text-input"
-                                        disabled={loading}
-                                    />
-                                </div>
-
-                                <div className="form-group">
-                                    <label>📍 Property Address *</label>
-                                    <input 
-                                        type="text"
-                                        value={propertyForm.propertyAddress}
-                                        onChange={(e) => setPropertyForm({...propertyForm, propertyAddress: e.target.value})}
-                                        placeholder="Enter property address"
-                                        className="text-input"
-                                        disabled={loading}
-                                    />
-                                </div>
-
-                                <div className="form-group">
-                                    <label>📝 Description</label>
-                                    <textarea 
-                                        value={propertyForm.description}
-                                        onChange={(e) => setPropertyForm({...propertyForm, description: e.target.value})}
-                                        placeholder="Enter property description"
-                                        className="textarea-input"
-                                        rows="4"
-                                        disabled={loading}
-                                    />
-                                </div>
-
-                                <div className="form-group">
-                                    <label>👤 Owner Details</label>
-                                    <input 
-                                        type="text"
-                                        value={propertyForm.ownerDetails}
-                                        onChange={(e) => setPropertyForm({...propertyForm, ownerDetails: e.target.value})}
-                                        placeholder="Enter owner details"
-                                        className="text-input"
-                                        disabled={loading}
-                                    />
-                                </div>
-
-                                <div className="form-group">
-                                    <label>💎 Price (ETH) *</label>
-                                    <input 
-                                        type="number"
-                                        step="0.001"
-                                        min="0"
-                                        value={propertyForm.priceInETH}
-                                        onChange={(e) => setPropertyForm({...propertyForm, priceInETH: e.target.value})}
-                                        placeholder="Enter price in ETH"
-                                        className="text-input"
-                                        disabled={loading}
-                                    />
-                                </div>
-
                                 <button 
-                                    onClick={createProperty}
-                                    disabled={loading || !selectedImage || !propertyForm.name || !propertyForm.propertyAddress || !propertyForm.priceInETH}
                                     className="create-btn"
+                                    onClick={createProperty}
+                                    disabled={loading}
                                 >
-                                    {loading ? '⏳ Creating...' : '🚀 Create & List Property'}
+                                    {loading ? (
+                                        <>
+                                            <span className="loading-spinner"></span>
+                                            Creating...
+                                        </>
+                                    ) : (
+                                        'Create Property NFT'
+                                    )}
                                 </button>
                             </div>
                         </div>
                     )}
 
+                    {/* List External NFT Tab */}
                     {activeTab === 'list-external' && (
                         <div className="create-section">
                             <div className="section-header">
-                                <h2>📋 List External NFT</h2>
+                                <h2>List External NFT</h2>
                             </div>
+
                             <div className="create-form">
                                 <div className="form-group">
-                                    <label>🖼️ NFT Image *</label>
-                                    <input 
-                                        type="file" 
+                                    <label>NFT Contract Address *</label>
+                                    <input
+                                        type="text"
+                                        className="text-input"
+                                        placeholder="Enter NFT contract address"
+                                        value={externalNFTForm.nftContract}
+                                        onChange={(e) => setExternalNFTForm({...externalNFTForm, nftContract: e.target.value})}
+                                    />
+                                </div>
+
+                                <div className="form-group">
+                                    <label>Token ID *</label>
+                                    <input
+                                        type="number"
+                                        className="text-input"
+                                        placeholder="Enter token ID"
+                                        value={externalNFTForm.tokenId}
+                                        onChange={(e) => setExternalNFTForm({...externalNFTForm, tokenId: e.target.value})}
+                                    />
+                                </div>
+
+                                <div className="form-group">
+                                    <label>NFT Name *</label>
+                                    <input
+                                        type="text"
+                                        className="text-input"
+                                        placeholder="Enter NFT name"
+                                        value={externalNFTForm.name}
+                                        onChange={(e) => setExternalNFTForm({...externalNFTForm, name: e.target.value})}
+                                    />
+                                </div>
+
+                                <div className="form-group">
+                                    <label>Property Address</label>
+                                    <input
+                                        type="text"
+                                        className="text-input"
+                                        placeholder="Enter property address (if applicable)"
+                                        value={externalNFTForm.propertyAddress}
+                                        onChange={(e) => setExternalNFTForm({...externalNFTForm, propertyAddress: e.target.value})}
+                                    />
+                                </div>
+
+                                <div className="form-group">
+                                    <label>Description</label>
+                                    <textarea
+                                        className="textarea-input"
+                                        placeholder="Enter NFT description"
+                                        value={externalNFTForm.description}
+                                        onChange={(e) => setExternalNFTForm({...externalNFTForm, description: e.target.value})}
+                                    />
+                                </div>
+
+                                <div className="form-group">
+                                    <label>Owner Details</label>
+                                    <input
+                                        type="text"
+                                        className="text-input"
+                                        placeholder="Enter owner details"
+                                        value={externalNFTForm.ownerDetails}
+                                        onChange={(e) => setExternalNFTForm({...externalNFTForm, ownerDetails: e.target.value})}
+                                    />
+                                </div>
+
+                                <div className="form-group">
+                                    <label>Price in ETH *</label>
+                                    <input
+                                        type="number"
+                                        step="0.001"
+                                        className="text-input"
+                                        placeholder="Enter price in ETH"
+                                        value={externalNFTForm.priceInETH}
+                                        onChange={(e) => setExternalNFTForm({...externalNFTForm, priceInETH: e.target.value})}
+                                    />
+                                </div>
+
+                                <div className="form-group">
+                                    <label>NFT Image *</label>
+                                    <input
+                                        type="file"
                                         accept="image/*"
-                                        onChange={(e) => handleImageUpload(e, true)}
                                         className="file-input"
-                                        disabled={loading}
+                                        onChange={(e) => handleImageUpload(e, true)}
                                     />
                                     {externalImagePreview && (
                                         <div className="image-preview-container">
@@ -1192,124 +1399,46 @@ const PropertyNFTMarketplace = () => {
                                     )}
                                 </div>
 
-                                <div className="form-group">
-                                    <label>📄 NFT Contract Address *</label>
-                                    <input 
-                                        type="text"
-                                        value={externalNFTForm.nftContract}
-                                        onChange={(e) => setExternalNFTForm({...externalNFTForm, nftContract: e.target.value})}
-                                        placeholder="Enter NFT contract address"
-                                        className="text-input"
-                                        disabled={loading}
-                                    />
-                                </div>
-
-                                <div className="form-group">
-                                    <label>🔢 Token ID *</label>
-                                    <input 
-                                        type="number"
-                                        value={externalNFTForm.tokenId}
-                                        onChange={(e) => setExternalNFTForm({...externalNFTForm, tokenId: e.target.value})}
-                                        placeholder="Enter token ID"
-                                        className="text-input"
-                                        disabled={loading}
-                                    />
-                                </div>
-
-                                <div className="form-group">
-                                    <label>🏷️ NFT Name *</label>
-                                    <input 
-                                        type="text"
-                                        value={externalNFTForm.name}
-                                        onChange={(e) => setExternalNFTForm({...externalNFTForm, name: e.target.value})}
-                                        placeholder="Enter NFT name"
-                                        className="text-input"
-                                        disabled={loading}
-                                    />
-                                </div>
-
-                                <div className="form-group">
-                                    <label>📍 Property Address</label>
-                                    <input 
-                                        type="text"
-                                        value={externalNFTForm.propertyAddress}
-                                        onChange={(e) => setExternalNFTForm({...externalNFTForm, propertyAddress: e.target.value})}
-                                        placeholder="Enter property address (if applicable)"
-                                        className="text-input"
-                                        disabled={loading}
-                                    />
-                                </div>
-
-                                <div className="form-group">
-                                    <label>📝 Description</label>
-                                    <textarea 
-                                        value={externalNFTForm.description}
-                                        onChange={(e) => setExternalNFTForm({...externalNFTForm, description: e.target.value})}
-                                        placeholder="Enter NFT description"
-                                        className="textarea-input"
-                                        rows="4"
-                                        disabled={loading}
-                                    />
-                                </div>
-
-                                <div className="form-group">
-                                    <label>👤 Owner Details</label>
-                                    <input 
-                                        type="text"
-                                        value={externalNFTForm.ownerDetails}
-                                        onChange={(e) => setExternalNFTForm({...externalNFTForm, ownerDetails: e.target.value})}
-                                        placeholder="Enter owner details"
-                                        className="text-input"
-                                        disabled={loading}
-                                    />
-                                </div>
-
-                                <div className="form-group">
-                                    <label>💎 Price (ETH) *</label>
-                                    <input 
-                                        type="number"
-                                        step="0.001"
-                                        min="0"
-                                        value={externalNFTForm.priceInETH}
-                                        onChange={(e) => setExternalNFTForm({...externalNFTForm, priceInETH: e.target.value})}
-                                        placeholder="Enter price in ETH"
-                                        className="text-input"
-                                        disabled={loading}
-                                    />
-                                </div>
-
                                 <button 
-                                    onClick={listExternalNFT}
-                                    disabled={loading || !externalImage || !externalNFTForm.nftContract || !externalNFTForm.tokenId || !externalNFTForm.name || !externalNFTForm.priceInETH}
                                     className="create-btn"
+                                    onClick={listExternalNFT}
+                                    disabled={loading}
                                 >
-                                    {loading ? '⏳ Listing...' : '📋 List External NFT'}
+                                    {loading ? (
+                                        <>
+                                            <span className="loading-spinner"></span>
+                                            Listing...
+                                        </>
+                                    ) : (
+                                        'List External NFT'
+                                    )}
                                 </button>
                             </div>
                         </div>
                     )}
 
+                    {/* My Properties Tab */}
                     {activeTab === 'my-properties' && (
                         <div className="my-properties-section">
                             <div className="section-header">
-                                <h2>🏡 My Properties</h2>
+                                <h2>My Properties</h2>
                                 <button 
-                                    onClick={loadUserProperties} 
+                                    className="refresh-btn" 
+                                    onClick={refreshData}
                                     disabled={loading}
-                                    className="refresh-btn"
                                 >
-                                    {loading ? '🔄 Loading...' : '🔄 Refresh'}
+                                    {loading ? 'Refreshing...' : 'Refresh'}
                                 </button>
                             </div>
-                            
+
                             {userProperties.length === 0 ? (
                                 <div className="empty-state">
-                                    <div className="empty-icon">🏡</div>
+                                    <div className="empty-icon">🏠</div>
                                     <h3>No Properties Owned</h3>
-                                    <p>You don't own any properties yet. Create your first property to get started!</p>
+                                    <p>You don't own any properties yet. Create or buy some to see them here!</p>
                                     <button 
+                                        className="create-first-btn" 
                                         onClick={() => setActiveTab('create')}
-                                        className="create-first-btn"
                                     >
                                         Create Your First Property
                                     </button>
@@ -1317,42 +1446,57 @@ const PropertyNFTMarketplace = () => {
                             ) : (
                                 <div className="properties-grid">
                                     {userProperties.map((property, index) => (
-                                        <div key={`user-${property.tokenId}-${index}`} className="property-card">
+                                        <div key={index} className="property-card">
                                             <div className="property-image-container">
                                                 <img 
                                                     src={property.imageURI} 
                                                     alt={property.name}
                                                     className="property-image"
                                                     onError={(e) => {
-                                                        e.target.src = 'https://via.placeholder.com/300x200?text=Image+Not+Found';
+                                                        console.log('User property image failed to load:', property.imageURI);
+                                                        e.target.src = 'https://via.placeholder.com/400x250?text=Property+Image';
+                                                    }}
+                                                    onLoad={() => {
+                                                        console.log('User property image loaded successfully:', property.imageURI);
                                                     }}
                                                 />
+                                                <div className="property-type-badge">
+                                                    <span className="type-badge internal">
+                                                        My Property
+                                                    </span>
+                                                </div>
                                             </div>
+                                            
                                             <div className="property-details">
                                                 <h3>{property.name}</h3>
-                                                <p className="property-address">📍 {property.propertyAddress}</p>
+                                                {property.propertyAddress && (
+                                                    <p className="property-address">📍 {property.propertyAddress}</p>
+                                                )}
                                                 {property.description && (
                                                     <p className="property-description">{property.description}</p>
                                                 )}
+                                                
+                                                <div className="property-price">
+                                                    <div className="price-eth">
+                                                        {formatPrice(property.priceInWei)} ETH
+                                                    </div>
+                                                    <div className="price-usd">
+                                                        {formatUSDPrice(property.priceInUSD)}
+                                                    </div>
+                                                </div>
+                                                
                                                 <div className="property-status">
                                                     <span className={`status ${property.isListed ? 'listed' : 'unlisted'}`}>
-                                                        {property.isListed ? '🟢 Listed for Sale' : '🔴 Not Listed'}
+                                                        {property.isSold ? 'Sold' : property.isListed ? 'Listed' : 'Not Listed'}
                                                     </span>
-                                                    {property.isSold && (
-                                                        <span className="status sold">✅ Sold</span>
-                                                    )}
+                                                    <span className="token-id">
+                                                        Token #{property.tokenId}
+                                                    </span>
                                                 </div>
-                                                {property.isListed && (
-                                                    <div className="property-price">
-                                                        <div className="price-eth">
-                                                            💎 {formatPrice(property.priceInWei)} ETH
-                                                        </div>
-                                                        <div className="price-usd">
-                                                            💵 ~${property.priceInUSD} USD
-                                                        </div>
-                                                    </div>
-                                                )}
-                                                <p className="token-id">🔢 Token ID: {property.tokenId}</p>
+                                                
+                                                <div className="owner-badge">
+                                                    You own this property
+                                                </div>
                                             </div>
                                         </div>
                                     ))}
@@ -1361,27 +1505,28 @@ const PropertyNFTMarketplace = () => {
                         </div>
                     )}
 
+                    {/* My External Listings Tab */}
                     {activeTab === 'my-listings' && (
                         <div className="my-properties-section">
                             <div className="section-header">
-                                <h2>📝 My External NFT Listings</h2>
+                                <h2>My External Listings</h2>
                                 <button 
-                                    onClick={loadUserExternalListings} 
+                                    className="refresh-btn" 
+                                    onClick={refreshData}
                                     disabled={loading}
-                                    className="refresh-btn"
                                 >
-                                    {loading ? '🔄 Loading...' : '🔄 Refresh'}
+                                    {loading ? 'Refreshing...' : 'Refresh'}
                                 </button>
                             </div>
-                            
+
                             {userExternalListings.length === 0 ? (
                                 <div className="empty-state">
-                                    <div className="empty-icon">📝</div>
+                                    <div className="empty-icon">🎨</div>
                                     <h3>No External Listings</h3>
-                                    <p>You haven't listed any external NFTs yet. List your first external NFT to get started!</p>
+                                    <p>You haven't listed any external NFTs yet. List some to see them here!</p>
                                     <button 
+                                        className="create-first-btn" 
                                         onClick={() => setActiveTab('list-external')}
-                                        className="create-first-btn"
                                     >
                                         List Your First External NFT
                                     </button>
@@ -1389,46 +1534,61 @@ const PropertyNFTMarketplace = () => {
                             ) : (
                                 <div className="properties-grid">
                                     {userExternalListings.map((listing, index) => (
-                                        <div key={`listing-${listing.listingId}-${index}`} className="property-card">
+                                        <div key={index} className="property-card">
                                             <div className="property-image-container">
                                                 <img 
                                                     src={listing.imageURI} 
                                                     alt={listing.name}
                                                     className="property-image"
                                                     onError={(e) => {
-                                                        e.target.src = 'https://via.placeholder.com/300x200?text=Image+Not+Found';
+                                                        console.log('External listing image failed to load:', listing.imageURI);
+                                                        e.target.src = 'https://via.placeholder.com/400x250?text=NFT+Image';
+                                                    }}
+                                                    onLoad={() => {
+                                                        console.log('External listing image loaded successfully:', listing.imageURI);
                                                     }}
                                                 />
                                                 <div className="property-type-badge">
-                                                    <span className="type-badge external">🔗 External NFT</span>
+                                                    <span className="type-badge external">
+                                                        External NFT
+                                                    </span>
                                                 </div>
                                             </div>
+                                            
                                             <div className="property-details">
                                                 <h3>{listing.name}</h3>
-                                                <p className="property-address">📄 Contract: {formatAddress(listing.nftContract)}</p>
-                                                <p className="property-address">🔢 Token ID: {listing.tokenId}</p>
+                                                {listing.propertyAddress && (
+                                                    <p className="property-address">📍 {listing.propertyAddress}</p>
+                                                )}
                                                 {listing.description && (
                                                     <p className="property-description">{listing.description}</p>
                                                 )}
+                                                
+                                                <div className="property-price">
+                                                    <div className="price-eth">
+                                                        {formatPrice(listing.priceInWei)} ETH
+                                                    </div>
+                                                    <div className="price-usd">
+                                                        {formatUSDPrice(listing.priceInUSD)}
+                                                    </div>
+                                                </div>
+                                                
+                                                <p className="owner">
+                                                    Contract: {formatAddress(listing.nftContract)}
+                                                </p>
+                                                
                                                 <div className="property-status">
                                                     <span className={`status ${listing.isActive ? 'listed' : 'unlisted'}`}>
-                                                        {listing.isActive ? '🟢 Active Listing' : '🔴 Inactive'}
+                                                        {listing.isSold ? 'Sold' : listing.isActive ? 'Active' : 'Inactive'}
                                                     </span>
-                                                    {listing.isSold && (
-                                                        <span className="status sold">✅ Sold</span>
-                                                    )}
+                                                    <span className="token-id">
+                                                        Listing #{listing.listingId}
+                                                    </span>
                                                 </div>
-                                                {listing.isActive && (
-                                                    <div className="property-price">
-                                                        <div className="price-eth">
-                                                            💎 {formatPrice(listing.priceInWei)} ETH
-                                                        </div>
-                                                        <div className="price-usd">
-                                                            💵 ~${listing.priceInUSD} USD
-                                                        </div>
-                                                    </div>
-                                                )}
-                                                <p className="token-id">📋 Listing ID: {listing.listingId}</p>
+                                                
+                                                <div className="owner-badge">
+                                                    Your listing
+                                                </div>
                                             </div>
                                         </div>
                                     ))}
