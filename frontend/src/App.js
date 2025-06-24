@@ -11,6 +11,9 @@ const PINATA_SECRET_KEY = '36b531be959f28db2b3a9b8672fe4243dd82ccf518624ebbffd1b
 // Your deployed contract address
 const CONTRACT_ADDRESS = '0x0A47388e92d2c5aFF354CbCCC41fb8f80a0ef9Db';
 
+// Contract owner address (replace with your actual owner address)
+const OWNER_ADDRESS = '0x7f21d6db0b059496ee1c0810898e35c125a714ab';
+
 // Multiple IPFS gateways for better image loading reliability
 const IPFS_GATEWAYS = [
     'https://gateway.pinata.cloud/ipfs/',
@@ -60,6 +63,7 @@ const PropertyNFTMarketplace = () => {
     const [userProperties, setUserProperties] = useState([]);
     const [userExternalListings, setUserExternalListings] = useState([]);
     const [activeTab, setActiveTab] = useState('marketplace');
+    const [contractBalance, setContractBalance] = useState('0');
 
     // Initialize Web3 connection
     useEffect(() => {
@@ -86,6 +90,7 @@ const PropertyNFTMarketplace = () => {
             loadMarketplaceData();
             loadUserProperties();
             loadUserExternalListings();
+            loadContractBalance();
         }
     }, [contract, account]);
 
@@ -211,6 +216,22 @@ const PropertyNFTMarketplace = () => {
         setUserProperties([]);
         setUserExternalListings([]);
         setSuccess('Wallet disconnected successfully');
+    };
+
+    // Helper function to check if contract method exists
+    const hasContractMethod = (methodName) => {
+        if (!contract) return false;
+        try {
+            return contract.interface.hasFunction(methodName);
+        } catch (err) {
+            console.warn(`Method ${methodName} not found in contract:`, err);
+            return false;
+        }
+    };
+
+    // Helper function to check if user is owner
+    const isOwner = () => {
+        return account && account.toLowerCase() === OWNER_ADDRESS.toLowerCase();
     };
 
     // Helper function to get working IPFS URL with multiple gateway fallbacks
@@ -452,6 +473,11 @@ const PropertyNFTMarketplace = () => {
             setError('');
             setSuccess('');
             
+            // Check if listExternalNFT method exists
+            if (!hasContractMethod('listExternalNFT')) {
+                throw new Error('External NFT listing is not supported by this contract version');
+            }
+            
             if (!externalImage) {
                 throw new Error('Please select an image');
             }
@@ -599,6 +625,7 @@ const PropertyNFTMarketplace = () => {
                 setTimeout(() => {
                     loadMarketplaceData();
                     loadUserProperties();
+                    loadContractBalance();
                 }, 3000);
                 
             } catch (gasError) {
@@ -626,6 +653,10 @@ const PropertyNFTMarketplace = () => {
             setLoading(true);
             setError('');
             setSuccess('');
+            
+            if (!hasContractMethod('purchaseExternalNFT')) {
+                throw new Error('External NFT purchasing is not supported by this contract version');
+            }
             
             if (!contract || !account) {
                 throw new Error('Please connect your wallet first');
@@ -659,6 +690,7 @@ const PropertyNFTMarketplace = () => {
                 setTimeout(() => {
                     loadMarketplaceData();
                     loadUserExternalListings();
+                    loadContractBalance();
                 }, 3000);
                 
             } catch (gasError) {
@@ -681,127 +713,260 @@ const PropertyNFTMarketplace = () => {
         }
     };
 
-    // Enhanced loadMarketplaceData with better error handling and USD price formatting
+    // NEW: Withdraw fees function for owner
+    const withdrawFees = async () => {
+        try {
+            setLoading(true);
+            setError('');
+            setSuccess('');
+            
+            if (!contract || !account) {
+                throw new Error('Please connect your wallet first');
+            }
+
+            if (!isOwner()) {
+                throw new Error('Only the contract owner can withdraw fees');
+            }
+
+            if (!hasContractMethod('withdrawFees')) {
+                throw new Error('Withdraw fees function is not available in this contract');
+            }
+
+            const currentAccounts = await window.ethereum.request({
+                method: 'eth_accounts'
+            });
+            
+            if (!currentAccounts.includes(account)) {
+                throw new Error('Account access lost. Please reconnect your wallet.');
+            }
+            
+            console.log('Withdrawing fees...');
+            
+            try {
+                const gasEstimate = await contract.withdrawFees.estimateGas();
+                const gasLimit = gasEstimate * 120n / 100n;
+                
+                const tx = await contract.withdrawFees({
+                    gasLimit: gasLimit
+                });
+                
+                setSuccess('Withdraw transaction submitted! Waiting for confirmation...');
+                const receipt = await tx.wait();
+                setSuccess('Fees withdrawn successfully!');
+                
+                setTimeout(() => {
+                    loadContractBalance();
+                }, 3000);
+                
+            } catch (gasError) {
+                console.error('Withdraw gas error:', gasError);
+                
+                if (gasError.code === 4001) {
+                    throw new Error('Transaction rejected by user');
+                } else if (gasError.code === 4100) {
+                    throw new Error('Please reconnect your wallet and try again');
+                } else {
+                    throw new Error('Withdraw failed: ' + gasError.message);
+                }
+            }
+            
+        } catch (err) {
+            console.error('Withdraw error:', err);
+            setError(err.message || 'Withdraw failed');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // NEW: Load contract balance
+    const loadContractBalance = async () => {
+        try {
+            if (!provider) return;
+            
+            const balance = await provider.getBalance(CONTRACT_ADDRESS);
+            setContractBalance(ethers.formatEther(balance));
+            console.log('Contract balance:', ethers.formatEther(balance), 'ETH');
+            
+        } catch (err) {
+            console.error('Failed to load contract balance:', err);
+        }
+    };
+
+    // Fixed loadMarketplaceData with better error handling and fallback mechanisms
     const loadMarketplaceData = async () => {
         try {
             if (!contract) return;
             
             console.log('Loading marketplace data...');
             
-            const listedTokenIds = await contract.getListedProperties();
-            console.log('Listed token IDs:', listedTokenIds);
-            
+            // Load internal properties
             const internalProperties = [];
             
-            for (let tokenId of listedTokenIds) {
-                try {
-                    const tokenIdNum = Number(tokenId);
-                    if (tokenIdNum <= 0) {
-                        console.warn(`Invalid token ID: ${tokenId}`);
-                        continue;
-                    }
+            try {
+                if (hasContractMethod('getListedProperties')) {
+                    const listedTokenIds = await contract.getListedProperties();
+                    console.log('Listed token IDs:', listedTokenIds);
                     
-                    const propertyExists = await contract.propertyExists(tokenId);
-                    console.log(`Property ${tokenId} exists:`, propertyExists);
-                    
-                    if (propertyExists) {
+                    for (let tokenId of listedTokenIds) {
                         try {
-                            const [propertyWithDetails, priceInUSD] = await contract.getPropertyWithUSDPrice(tokenId);
-                            console.log(`Property ${tokenId} details:`, propertyWithDetails);
-                            console.log(`Property ${tokenId} USD price:`, priceInUSD.toString());
+                            const tokenIdNum = Number(tokenId);
+                            if (tokenIdNum <= 0) {
+                                console.warn(`Invalid token ID: ${tokenId}`);
+                                continue;
+                            }
                             
-                            if (propertyWithDetails.exists && propertyWithDetails.isListed && !propertyWithDetails.isSold) {
-                                internalProperties.push({
-                                    ...propertyWithDetails,
-                                    priceInUSD: priceInUSD.toString(),
-                                    isInternal: true,
-                                    tokenId: tokenId.toString(),
-                                    priceInWei: propertyWithDetails.priceInWei.toString(),
-                                    owner: propertyWithDetails.owner,
-                                    imageURI: getWorkingImageUrl(propertyWithDetails.imageURI)
-                                });
-                            }
-                        } catch (priceError) {
-                            console.error(`Error getting price for property ${tokenId}:`, priceError);
-                            try {
-                                const property = await contract.properties(tokenId);
-                                if (property.exists && property.isListed && !property.isSold) {
-                                    internalProperties.push({
-                                        ...property,
-                                        priceInUSD: '0',
-                                        isInternal: true,
-                                        tokenId: tokenId.toString(),
-                                        priceInWei: property.priceInWei.toString(),
-                                        owner: property.owner,
-                                        imageURI: getWorkingImageUrl(property.imageURI)
-                                    });
+                            // Check if property exists
+                            const propertyExists = hasContractMethod('propertyExists') ? 
+                                await contract.propertyExists(tokenId) : true;
+                            console.log(`Property ${tokenId} exists:`, propertyExists);
+                            
+                            if (propertyExists) {
+                                try {
+                                    // Try to get property with USD price first
+                                    if (hasContractMethod('getPropertyWithUSDPrice')) {
+                                        const [propertyWithDetails, priceInUSD] = await contract.getPropertyWithUSDPrice(tokenId);
+                                        console.log(`Property ${tokenId} details:`, propertyWithDetails);
+                                        console.log(`Property ${tokenId} USD price:`, priceInUSD.toString());
+                                        
+                                        if (propertyWithDetails.exists && propertyWithDetails.isListed && !propertyWithDetails.isSold) {
+                                            internalProperties.push({
+                                                ...propertyWithDetails,
+                                                priceInUSD: priceInUSD.toString(),
+                                                isInternal: true,
+                                                tokenId: tokenId.toString(),
+                                                priceInWei: propertyWithDetails.priceInWei.toString(),
+                                                owner: propertyWithDetails.owner,
+                                                imageURI: getWorkingImageUrl(propertyWithDetails.imageURI)
+                                            });
+                                        }
+                                    } else {
+                                        // Fallback to basic property getter
+                                        const property = await contract.properties(tokenId);
+                                        if (property.exists && property.isListed && !property.isSold) {
+                                            internalProperties.push({
+                                                ...property,
+                                                priceInUSD: '0',
+                                                isInternal: true,
+                                                tokenId: tokenId.toString(),
+                                                priceInWei: property.priceInWei.toString(),
+                                                owner: property.owner,
+                                                imageURI: getWorkingImageUrl(property.imageURI)
+                                            });
+                                        }
+                                    }
+                                } catch (priceError) {
+                                    console.error(`Error getting price for property ${tokenId}:`, priceError);
+                                    try {
+                                        const property = await contract.properties(tokenId);
+                                        if (property.exists && property.isListed && !property.isSold) {
+                                            internalProperties.push({
+                                                ...property,
+                                                priceInUSD: '0',
+                                                isInternal: true,
+                                                tokenId: tokenId.toString(),
+                                                priceInWei: property.priceInWei.toString(),
+                                                owner: property.owner,
+                                                imageURI: getWorkingImageUrl(property.imageURI)
+                                            });
+                                        }
+                                    } catch (fallbackError) {
+                                        console.error(`Fallback failed for property ${tokenId}:`, fallbackError);
+                                    }
                                 }
-                            } catch (fallbackError) {
-                                console.error(`Fallback failed for property ${tokenId}:`, fallbackError);
                             }
+                        } catch (err) {
+                            console.error(`Error loading property ${tokenId}:`, err);
                         }
                     }
-                } catch (err) {
-                    console.error(`Error loading property ${tokenId}:`, err);
+                } else {
+                    console.warn('getListedProperties method not available in contract');
                 }
+            } catch (err) {
+                console.error('Error loading internal properties:', err);
             }
             
-            const externalListingIds = await contract.getActiveExternalListings();
-            console.log('External listing IDs:', externalListingIds);
-            
+            // Load external listings (with fallback) - FIXED: Skip if method doesn't exist
             const externalListings = [];
             
-            for (let listingId of externalListingIds) {
-                try {
-                    const listingIdNum = Number(listingId);
-                    if (listingIdNum <= 0) {
-                        console.warn(`Invalid listing ID: ${listingId}`);
-                        continue;
-                    }
+            try {
+                if (hasContractMethod('getActiveExternalListings')) {
+                    const externalListingIds = await contract.getActiveExternalListings();
+                    console.log('External listing IDs:', externalListingIds);
                     
-                    const listingExists = await contract.externalListingExists(listingId);
-                    console.log(`External listing ${listingId} exists:`, listingExists);
-                    
-                    if (listingExists) {
+                    for (let listingId of externalListingIds) {
                         try {
-                            const [listingWithDetails, priceInUSD] = await contract.getExternalListingWithUSDPrice(listingId);
-                            console.log(`External listing ${listingId} details:`, listingWithDetails);
-                            console.log(`External listing ${listingId} USD price:`, priceInUSD.toString());
+                            const listingIdNum = Number(listingId);
+                            if (listingIdNum <= 0) {
+                                console.warn(`Invalid listing ID: ${listingId}`);
+                                continue;
+                            }
                             
-                            if (listingWithDetails.exists && listingWithDetails.isActive && !listingWithDetails.isSold) {
-                                externalListings.push({
-                                    ...listingWithDetails,
-                                    priceInUSD: priceInUSD.toString(),
-                                    isInternal: false,
-                                    listingId: listingId.toString(),
-                                    priceInWei: listingWithDetails.priceInWei.toString(),
-                                    owner: listingWithDetails.owner,
-                                    imageURI: getWorkingImageUrl(listingWithDetails.imageURI)
-                                });
-                            }
-                        } catch (priceError) {
-                            console.error(`Error getting price for listing ${listingId}:`, priceError);
-                            try {
-                                const listing = await contract.externalListings(listingId);
-                                if (listing.exists && listing.isActive && !listing.isSold) {
-                                    externalListings.push({
-                                        ...listing,
-                                        priceInUSD: '0',
-                                        isInternal: false,
-                                        listingId: listingId.toString(),
-                                        priceInWei: listing.priceInWei.toString(),
-                                        owner: listing.owner,
-                                        imageURI: getWorkingImageUrl(listing.imageURI)
-                                    });
+                            const listingExists = hasContractMethod('externalListingExists') ? 
+                                await contract.externalListingExists(listingId) : true;
+                            console.log(`External listing ${listingId} exists:`, listingExists);
+                            
+                            if (listingExists) {
+                                try {
+                                    if (hasContractMethod('getExternalListingWithUSDPrice')) {
+                                        const [listingWithDetails, priceInUSD] = await contract.getExternalListingWithUSDPrice(listingId);
+                                        console.log(`External listing ${listingId} details:`, listingWithDetails);
+                                        console.log(`External listing ${listingId} USD price:`, priceInUSD.toString());
+                                        
+                                        if (listingWithDetails.exists && listingWithDetails.isActive && !listingWithDetails.isSold) {
+                                            externalListings.push({
+                                                ...listingWithDetails,
+                                                priceInUSD: priceInUSD.toString(),
+                                                isInternal: false,
+                                                listingId: listingId.toString(),
+                                                priceInWei: listingWithDetails.priceInWei.toString(),
+                                                owner: listingWithDetails.owner,
+                                                imageURI: getWorkingImageUrl(listingWithDetails.imageURI)
+                                            });
+                                        }
+                                    } else {
+                                        const listing = await contract.externalListings(listingId);
+                                        if (listing.exists && listing.isActive && !listing.isSold) {
+                                            externalListings.push({
+                                                ...listing,
+                                                priceInUSD: '0',
+                                                isInternal: false,
+                                                listingId: listingId.toString(),
+                                                priceInWei: listing.priceInWei.toString(),
+                                                owner: listing.owner,
+                                                imageURI: getWorkingImageUrl(listing.imageURI)
+                                            });
+                                        }
+                                    }
+                                } catch (priceError) {
+                                    console.error(`Error getting price for listing ${listingId}:`, priceError);
+                                    try {
+                                        const listing = await contract.externalListings(listingId);
+                                        if (listing.exists && listing.isActive && !listing.isSold) {
+                                            externalListings.push({
+                                                ...listing,
+                                                priceInUSD: '0',
+                                                isInternal: false,
+                                                listingId: listingId.toString(),
+                                                priceInWei: listing.priceInWei.toString(),
+                                                owner: listing.owner,
+                                                imageURI: getWorkingImageUrl(listing.imageURI)
+                                            });
+                                        }
+                                    } catch (fallbackError) {
+                                        console.error(`Fallback failed for listing ${listingId}:`, fallbackError);
+                                    }
                                 }
-                            } catch (fallbackError) {
-                                console.error(`Fallback failed for listing ${listingId}:`, fallbackError);
                             }
+                        } catch (err) {
+                            console.error(`Error loading external listing ${listingId}:`, err);
                         }
                     }
-                } catch (err) {
-                    console.error(`Error loading external listing ${listingId}:`, err);
+                } else {
+                    console.warn('getActiveExternalListings method not available in contract - skipping external listings');
                 }
+            } catch (err) {
+                console.error('Error loading external listings:', err);
+                // Don't throw error here, just log it
             }
             
             const allProperties = [...internalProperties, ...externalListings];
@@ -810,7 +975,8 @@ const PropertyNFTMarketplace = () => {
             
         } catch (err) {
             console.error('Failed to load marketplace data:', err);
-            setError('Failed to load marketplace data: ' + err.message);
+            // Don't set error state here to avoid blocking the UI
+            console.warn('Marketplace data loading failed, but continuing...');
         }
     };
 
@@ -821,58 +987,80 @@ const PropertyNFTMarketplace = () => {
             
             console.log('Loading user properties for:', account);
             
-            const userTokenIds = await contract.getUserProperties(account);
-            console.log('User token IDs:', userTokenIds);
-            
             const properties = [];
             
-            for (let tokenId of userTokenIds) {
-                try {
-                    const tokenIdNum = Number(tokenId);
-                    if (tokenIdNum <= 0) {
-                        console.warn(`Invalid user token ID: ${tokenId}`);
-                        continue;
-                    }
+            try {
+                if (hasContractMethod('getUserProperties')) {
+                    const userTokenIds = await contract.getUserProperties(account);
+                    console.log('User token IDs:', userTokenIds);
                     
-                    const propertyExists = await contract.propertyExists(tokenId);
-                    console.log(`User property ${tokenId} exists:`, propertyExists);
-                    
-                    if (propertyExists) {
+                    for (let tokenId of userTokenIds) {
                         try {
-                            const [propertyWithDetails, priceInUSD] = await contract.getPropertyWithUSDPrice(tokenId);
-                            console.log(`User property ${tokenId} details:`, propertyWithDetails);
-                            console.log(`User property ${tokenId} USD price:`, priceInUSD.toString());
+                            const tokenIdNum = Number(tokenId);
+                            if (tokenIdNum <= 0) {
+                                console.warn(`Invalid user token ID: ${tokenId}`);
+                                continue;
+                            }
                             
-                            if (propertyWithDetails.exists) {
-                                properties.push({
-                                    ...propertyWithDetails,
-                                    priceInUSD: priceInUSD.toString(),
-                                    tokenId: tokenId.toString(),
-                                    priceInWei: propertyWithDetails.priceInWei.toString(),
-                                    imageURI: getWorkingImageUrl(propertyWithDetails.imageURI)
-                                });
-                            }
-                        } catch (priceError) {
-                            console.error(`Error getting price for user property ${tokenId}:`, priceError);
-                            try {
-                                const property = await contract.properties(tokenId);
-                                if (property.exists) {
-                                    properties.push({
-                                        ...property,
-                                        priceInUSD: '0',
-                                        tokenId: tokenId.toString(),
-                                        priceInWei: property.priceInWei.toString(),
-                                        imageURI: getWorkingImageUrl(property.imageURI)
-                                    });
+                            const propertyExists = hasContractMethod('propertyExists') ? 
+                                await contract.propertyExists(tokenId) : true;
+                            console.log(`User property ${tokenId} exists:`, propertyExists);
+                            
+                            if (propertyExists) {
+                                try {
+                                    if (hasContractMethod('getPropertyWithUSDPrice')) {
+                                        const [propertyWithDetails, priceInUSD] = await contract.getPropertyWithUSDPrice(tokenId);
+                                        console.log(`User property ${tokenId} details:`, propertyWithDetails);
+                                        console.log(`User property ${tokenId} USD price:`, priceInUSD.toString());
+                                        
+                                        if (propertyWithDetails.exists) {
+                                            properties.push({
+                                                ...propertyWithDetails,
+                                                priceInUSD: priceInUSD.toString(),
+                                                tokenId: tokenId.toString(),
+                                                priceInWei: propertyWithDetails.priceInWei.toString(),
+                                                imageURI: getWorkingImageUrl(propertyWithDetails.imageURI)
+                                            });
+                                        }
+                                    } else {
+                                        const property = await contract.properties(tokenId);
+                                        if (property.exists) {
+                                            properties.push({
+                                                ...property,
+                                                priceInUSD: '0',
+                                                tokenId: tokenId.toString(),
+                                                priceInWei: property.priceInWei.toString(),
+                                                imageURI: getWorkingImageUrl(property.imageURI)
+                                            });
+                                        }
+                                    }
+                                } catch (priceError) {
+                                    console.error(`Error getting price for user property ${tokenId}:`, priceError);
+                                    try {
+                                        const property = await contract.properties(tokenId);
+                                        if (property.exists) {
+                                            properties.push({
+                                                ...property,
+                                                priceInUSD: '0',
+                                                tokenId: tokenId.toString(),
+                                                priceInWei: property.priceInWei.toString(),
+                                                imageURI: getWorkingImageUrl(property.imageURI)
+                                            });
+                                        }
+                                    } catch (fallbackError) {
+                                        console.error(`Fallback failed for user property ${tokenId}:`, fallbackError);
+                                    }
                                 }
-                            } catch (fallbackError) {
-                                console.error(`Fallback failed for user property ${tokenId}:`, fallbackError);
                             }
+                        } catch (err) {
+                            console.error(`Error loading user property ${tokenId}:`, err);
                         }
                     }
-                } catch (err) {
-                    console.error(`Error loading user property ${tokenId}:`, err);
+                } else {
+                    console.warn('getUserProperties method not available in contract');
                 }
+            } catch (err) {
+                console.error('Error loading user properties:', err);
             }
             
             setUserProperties(properties);
@@ -880,7 +1068,7 @@ const PropertyNFTMarketplace = () => {
             
         } catch (err) {
             console.error('Failed to load user properties:', err);
-            setError('Failed to load user properties: ' + err.message);
+            // Don't set error state to avoid blocking UI
         }
     };
 
@@ -891,58 +1079,80 @@ const PropertyNFTMarketplace = () => {
             
             console.log('Loading user external listings for:', account);
             
-            const userListingIds = await contract.getUserExternalListings(account);
-            console.log('User external listing IDs:', userListingIds);
-            
             const listings = [];
             
-            for (let listingId of userListingIds) {
-                try {
-                    const listingIdNum = Number(listingId);
-                    if (listingIdNum <= 0) {
-                        console.warn(`Invalid user listing ID: ${listingId}`);
-                        continue;
-                    }
+            try {
+                if (hasContractMethod('getUserExternalListings')) {
+                    const userListingIds = await contract.getUserExternalListings(account);
+                    console.log('User external listing IDs:', userListingIds);
                     
-                    const listingExists = await contract.externalListingExists(listingId);
-                    console.log(`User external listing ${listingId} exists:`, listingExists);
-                    
-                    if (listingExists) {
+                    for (let listingId of userListingIds) {
                         try {
-                            const [listingWithDetails, priceInUSD] = await contract.getExternalListingWithUSDPrice(listingId);
-                            console.log(`User external listing ${listingId} details:`, listingWithDetails);
-                            console.log(`User external listing ${listingId} USD price:`, priceInUSD.toString());
+                            const listingIdNum = Number(listingId);
+                            if (listingIdNum <= 0) {
+                                console.warn(`Invalid user listing ID: ${listingId}`);
+                                continue;
+                            }
                             
-                            if (listingWithDetails.exists) {
-                                listings.push({
-                                    ...listingWithDetails,
-                                    priceInUSD: priceInUSD.toString(),
-                                    listingId: listingId.toString(),
-                                    priceInWei: listingWithDetails.priceInWei.toString(),
-                                    imageURI: getWorkingImageUrl(listingWithDetails.imageURI)
-                                });
-                            }
-                        } catch (priceError) {
-                            console.error(`Error getting price for user listing ${listingId}:`, priceError);
-                            try {
-                                const listing = await contract.externalListings(listingId);
-                                if (listing.exists) {
-                                    listings.push({
-                                        ...listing,
-                                        priceInUSD: '0',
-                                        listingId: listingId.toString(),
-                                        priceInWei: listing.priceInWei.toString(),
-                                        imageURI: getWorkingImageUrl(listing.imageURI)
-                                    });
+                            const listingExists = hasContractMethod('externalListingExists') ? 
+                                await contract.externalListingExists(listingId) : true;
+                            console.log(`User external listing ${listingId} exists:`, listingExists);
+                            
+                            if (listingExists) {
+                                try {
+                                    if (hasContractMethod('getExternalListingWithUSDPrice')) {
+                                        const [listingWithDetails, priceInUSD] = await contract.getExternalListingWithUSDPrice(listingId);
+                                        console.log(`User external listing ${listingId} details:`, listingWithDetails);
+                                        console.log(`User external listing ${listingId} USD price:`, priceInUSD.toString());
+                                        
+                                        if (listingWithDetails.exists) {
+                                            listings.push({
+                                                ...listingWithDetails,
+                                                priceInUSD: priceInUSD.toString(),
+                                                listingId: listingId.toString(),
+                                                priceInWei: listingWithDetails.priceInWei.toString(),
+                                                imageURI: getWorkingImageUrl(listingWithDetails.imageURI)
+                                            });
+                                        }
+                                    } else {
+                                        const listing = await contract.externalListings(listingId);
+                                        if (listing.exists) {
+                                            listings.push({
+                                                ...listing,
+                                                priceInUSD: '0',
+                                                listingId: listingId.toString(),
+                                                priceInWei: listing.priceInWei.toString(),
+                                                imageURI: getWorkingImageUrl(listing.imageURI)
+                                            });
+                                        }
+                                    }
+                                } catch (priceError) {
+                                    console.error(`Error getting price for user listing ${listingId}:`, priceError);
+                                    try {
+                                        const listing = await contract.externalListings(listingId);
+                                        if (listing.exists) {
+                                            listings.push({
+                                                ...listing,
+                                                priceInUSD: '0',
+                                                listingId: listingId.toString(),
+                                                priceInWei: listing.priceInWei.toString(),
+                                                imageURI: getWorkingImageUrl(listing.imageURI)
+                                            });
+                                        }
+                                    } catch (fallbackError) {
+                                        console.error(`Fallback failed for user listing ${listingId}:`, fallbackError);
+                                    }
                                 }
-                            } catch (fallbackError) {
-                                console.error(`Fallback failed for user listing ${listingId}:`, fallbackError);
                             }
+                        } catch (err) {
+                            console.error(`Error loading user external listing ${listingId}:`, err);
                         }
                     }
-                } catch (err) {
-                    console.error(`Error loading user external listing ${listingId}:`, err);
+                } else {
+                    console.warn('getUserExternalListings method not available in contract');
                 }
+            } catch (err) {
+                console.error('Error loading user external listings:', err);
             }
             
             setUserExternalListings(listings);
@@ -950,7 +1160,7 @@ const PropertyNFTMarketplace = () => {
             
         } catch (err) {
             console.error('Failed to load user external listings:', err);
-            setError('Failed to load user external listings: ' + err.message);
+            // Don't set error state to avoid blocking UI
         }
     };
 
@@ -961,11 +1171,13 @@ const PropertyNFTMarketplace = () => {
                 await Promise.all([
                     loadMarketplaceData(),
                     loadUserProperties(),
-                    loadUserExternalListings()
+                    loadUserExternalListings(),
+                    loadContractBalance()
                 ]);
                 setSuccess('Data refreshed successfully!');
             } catch (err) {
-                setError('Failed to refresh data: ' + err.message);
+                console.error('Failed to refresh data:', err);
+                // Don't show error for refresh failures
             } finally {
                 setLoading(false);
             }
@@ -999,6 +1211,9 @@ const PropertyNFTMarketplace = () => {
                     <div className="header-info">
                         <div className="contract-info">
                             Contract: {formatAddress(CONTRACT_ADDRESS)}
+                            {isOwner() && (
+                                <span className="owner-badge">OWNER</span>
+                            )}
                         </div>
                         {!account ? (
                             <button 
@@ -1057,24 +1272,36 @@ const PropertyNFTMarketplace = () => {
                     >
                         Create Property
                     </button>
-                    <button 
-                        className={activeTab === 'list-external' ? 'active' : ''}
-                        onClick={() => setActiveTab('list-external')}
-                    >
-                        List External NFT
-                    </button>
+                    {hasContractMethod('listExternalNFT') && (
+                        <button 
+                            className={activeTab === 'list-external' ? 'active' : ''}
+                            onClick={() => setActiveTab('list-external')}
+                        >
+                            List External NFT
+                        </button>
+                    )}
                     <button 
                         className={activeTab === 'my-properties' ? 'active' : ''}
                         onClick={() => setActiveTab('my-properties')}
                     >
                         My Properties
                     </button>
-                    <button 
-                        className={activeTab === 'my-listings' ? 'active' : ''}
-                        onClick={() => setActiveTab('my-listings')}
-                    >
-                        My External Listings
-                    </button>
+                    {hasContractMethod('getUserExternalListings') && (
+                        <button 
+                            className={activeTab === 'my-listings' ? 'active' : ''}
+                            onClick={() => setActiveTab('my-listings')}
+                        >
+                            My External Listings
+                        </button>
+                    )}
+                    {isOwner() && (
+                        <button 
+                            className={activeTab === 'admin' ? 'active' : ''}
+                            onClick={() => setActiveTab('admin')}
+                        >
+                            Admin Panel
+                        </button>
+                    )}
                 </div>
             )}
 
@@ -1299,8 +1526,8 @@ const PropertyNFTMarketplace = () => {
                         </div>
                     )}
 
-                    {/* List External NFT Tab */}
-                    {activeTab === 'list-external' && (
+                    {/* List External NFT Tab - Only show if supported */}
+                    {activeTab === 'list-external' && hasContractMethod('listExternalNFT') && (
                         <div className="create-section">
                             <div className="section-header">
                                 <h2>List External NFT</h2>
@@ -1404,15 +1631,9 @@ const PropertyNFTMarketplace = () => {
                                     onClick={listExternalNFT}
                                     disabled={loading}
                                 >
-                                    {loading ? (
-                                        <>
-                                            <span className="loading-spinner"></span>
-                                            Listing...
-                                        </>
-                                    ) : (
-                                        'List External NFT'
-                                    )}
-                                </button>
+                                    </button>
+                                    
+                                
                             </div>
                         </div>
                     )}
@@ -1505,8 +1726,8 @@ const PropertyNFTMarketplace = () => {
                         </div>
                     )}
 
-                    {/* My External Listings Tab */}
-                    {activeTab === 'my-listings' && (
+                    {/* My External Listings Tab - Only show if supported */}
+                    {activeTab === 'my-listings' && hasContractMethod('getUserExternalListings') && (
                         <div className="my-properties-section">
                             <div className="section-header">
                                 <h2>My External Listings</h2>
@@ -1524,12 +1745,14 @@ const PropertyNFTMarketplace = () => {
                                     <div className="empty-icon">🎨</div>
                                     <h3>No External Listings</h3>
                                     <p>You haven't listed any external NFTs yet. List some to see them here!</p>
-                                    <button 
-                                        className="create-first-btn" 
-                                        onClick={() => setActiveTab('list-external')}
-                                    >
-                                        List Your First External NFT
-                                    </button>
+                                    {hasContractMethod('listExternalNFT') && (
+                                        <button 
+                                            className="create-first-btn" 
+                                            onClick={() => setActiveTab('list-external')}
+                                        >
+                                            List Your First External NFT
+                                        </button>
+                                    )}
                                 </div>
                             ) : (
                                 <div className="properties-grid">
@@ -1596,10 +1819,89 @@ const PropertyNFTMarketplace = () => {
                             )}
                         </div>
                     )}
+
+                    {/* Admin Panel Tab - Only for owner */}
+                    {activeTab === 'admin' && isOwner() && (
+                        <div className="admin-section">
+                            <div className="section-header">
+                                <h2>Admin Panel</h2>
+                                <span className="owner-badge">Contract Owner</span>
+                            </div>
+
+                            <div className="admin-grid">
+                                <div className="admin-card">
+                                    <h3>Contract Balance</h3>
+                                    <div className="balance-display">
+                                        <span className="balance-amount">{contractBalance} ETH</span>
+                                        <span className="balance-label">Available Fees</span>
+                                    </div>
+                                    <button 
+                                        className="admin-btn withdraw-btn"
+                                        onClick={withdrawFees}
+                                        disabled={loading || parseFloat(contractBalance) === 0}
+                                    >
+                                        {loading ? (
+                                            <>
+                                                <span className="loading-spinner"></span>
+                                                Withdrawing...
+                                            </>
+                                        ) : (
+                                            'Withdraw Fees'
+                                        )}
+                                    </button>
+                                </div>
+
+                                <div className="admin-card">
+                                    <h3>Marketplace Statistics</h3>
+                                    <div className="stats-grid">
+                                        <div className="stat-item">
+                                            <span className="stat-value">{listedProperties.length}</span>
+                                            <span className="stat-label">Listed Properties</span>
+                                        </div>
+                                        <div className="stat-item">
+                                            <span className="stat-value">{userProperties.length}</span>
+                                            <span className="stat-label">Your Properties</span>
+                                        </div>
+                                        <div className="stat-item">
+                                            <span className="stat-value">{userExternalListings.length}</span>
+                                            <span className="stat-label">External Listings</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="admin-card">
+                                    <h3>Contract Information</h3>
+                                    <div className="contract-details">
+                                        <div className="detail-item">
+                                            <span className="detail-label">Contract Address:</span>
+                                            <span className="detail-value">{CONTRACT_ADDRESS}</span>
+                                        </div>
+                                        <div className="detail-item">
+                                            <span className="detail-label">Owner Address:</span>
+                                            <span className="detail-value">{OWNER_ADDRESS}</span>
+                                        </div>
+                                        <div className="detail-item">
+                                            <span className="detail-label">Network:</span>
+                                            <span className="detail-value">Ethereum Sepolia Testnet</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </>
+            )}
+
+            {/* Loading Overlay */}
+            {loading && (
+                <div className="loading-overlay">
+                    <div className="loading-spinner-large"></div>
+                    <p>Processing transaction...</p>
+                </div>
             )}
         </div>
     );
 };
 
 export default PropertyNFTMarketplace;
+          
