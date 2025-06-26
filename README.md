@@ -1,6 +1,6 @@
 # PropertyNFT Marketplace 🏠🔗
 
-A comprehensive decentralized marketplace for real estate NFTs built on Ethereum, enabling users to mint, list, buy, and sell property-backed NFTs with integrated USD pricing via Chainlink oracles.
+A comprehensive decentralized marketplace for real estate NFTs built on Ethereum, enabling users to mint, list, buy, and sell property-backed NFTs with integrated USD pricing via Chainlink oracles and CCIP.
 
 ## 🌟 Features
 
