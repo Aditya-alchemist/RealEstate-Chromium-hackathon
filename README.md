@@ -23,44 +23,52 @@ A comprehensive decentralized marketplace for real estate NFTs built on Ethereum
 ## 🏗️ Architecture Overview
 
 ```mermaid
-graph TB
-    A[User Interface - React App] --> B[Web3 Provider - MetaMask]
-    B --> C[Smart Contract - PropertyNFT]
-    C --> D[Chainlink Price Feed]
-    C --> E[IPFS Storage - Pinata]
+
+     flowchart TD
+    A[User Opens App] --> B{Wallet Connected?}
+    B -->|No| C[Connect MetaMask]
+    B -->|Yes| D[Load Contract Data]
     
-    F[Property Creation] --> G[Image Upload to IPFS]
-    G --> H[Mint NFT with Metadata]
-    H --> I[List on Marketplace]
+    C --> D
+    D --> E[Display Marketplace]
     
-    J[External NFT Listing] --> K[Validate NFT Ownership]
+    E --> F{User Action}
+    
+    F -->|Create Property| G[Fill Property Form]
+    G --> H[Upload Image to IPFS]
+    H --> I[Mint Property NFT]
+    I --> J[List on Marketplace]
+    J --> E
+    
+    F -->|List External NFT| K[Enter NFT Details]
     K --> L[Upload Metadata to IPFS]
-    L --> M[Create Marketplace Listing]
+    L --> M[Create External Listing]
+    M --> E
     
-    N[Purchase Flow] --> O[Validate Listing]
-    O --> P[Transfer ETH Payment]
-    P --> Q[Transfer NFT Ownership]
-    Q --> R[Distribute Fees]
+    F -->|Purchase Property| N[Select Property]
+    N --> O[Send ETH Payment]
+    O --> P[Transfer NFT Ownership]
+    P --> Q[Distribute 2.5% Fee]
+    Q --> E
     
-    S[Admin Functions] --> T[Withdraw Collected Fees]
-    S --> U[Monitor Contract Balance]
-    S --> V[View Marketplace Statistics]
+    F -->|Admin Panel| R{Is Owner?}
+    R -->|Yes| S[View Contract Balance]
+    S --> T[Withdraw Fees]
+    T --> E
+    R -->|No| E
     
-    subgraph "Smart Contract Functions"
-        C --> C1[mintProperty]
-        C --> C2[purchaseProperty]
-        C --> C3[listExternalNFT]
-        C --> C4[purchaseExternalNFT]
-        C --> C5[withdrawFees]
-        C --> C6[getPropertyWithUSDPrice]
+    subgraph Smart Contract
+        SC1[PropertyNFT Contract]
+        SC2[Chainlink Price Feed]
+        SC3[IPFS Storage]
     end
     
-    subgraph "Data Storage"
-        E --> E1[Property Images]
-        E --> E2[Metadata JSON]
-        C --> C7[On-chain Property Data]
-        C --> C8[Ownership Records]
+    subgraph User Interface
+        UI1[React Frontend]
+        UI2[MetaMask Integration]
+        UI3[Toast Notifications]
     end
+
 ```
 
 ## 🚀 Getting Started
